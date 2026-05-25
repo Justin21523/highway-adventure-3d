@@ -1,0 +1,155 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Reset & Base ── */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #0a0a0f;
+  color: #e0e0e0;
+  font-family: 'Roboto', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ── Game Canvas ── */
+canvas {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+  outline: none;
+  touch-action: none;
+}
+
+/* ── Scrollbar (for shop/quest panels) ── */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: rgba(10, 10, 15, 0.5);
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(0, 255, 204, 0.3);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 255, 204, 0.5);
+}
+
+/* ── Utility Classes ── */
+@layer components {
+  /* Glass panel for modals and overlays */
+  .glass-panel {
+    @apply bg-surface-elevated backdrop-blur-hud border border-hud-border rounded-hud-lg shadow-card;
+  }
+
+  /* HUD container base */
+  .hud-container {
+    @apply bg-hud-bg border border-hud-border rounded-hud px-hud-3 py-hud-2;
+  }
+
+  /* Neon text glow */
+  .text-glow-primary {
+    text-shadow: 0 0 8px rgba(0, 255, 204, 0.6), 0 0 16px rgba(0, 255, 204, 0.3);
+  }
+  .text-glow-danger {
+    text-shadow: 0 0 8px rgba(255, 0, 85, 0.6), 0 0 16px rgba(255, 0, 85, 0.3);
+  }
+  .text-glow-gold {
+    text-shadow: 0 0 8px rgba(255, 215, 0, 0.6), 0 0 16px rgba(255, 215, 0, 0.3);
+  }
+  .text-glow-info {
+    text-shadow: 0 0 8px rgba(51, 153, 255, 0.6), 0 0 16px rgba(51, 153, 255, 0.3);
+  }
+
+  /* Interactive button base */
+  .btn-hud {
+    @apply px-hud-4 py-hud-2 rounded-hud font-display text-hud-sm
+           bg-hud-bg border border-hud-border text-hud-primary
+           transition-all duration-200 ease-out
+           hover:bg-hud-primary/10 hover:border-hud-primary/60 hover:shadow-hud-glow
+           active:scale-95;
+  }
+
+  .btn-danger {
+    @apply px-hud-4 py-hud-2 rounded-hud font-display text-hud-sm
+           bg-hud-bg border border-hud-secondary/40 text-hud-secondary
+           transition-all duration-200 ease-out
+           hover:bg-hud-secondary/10 hover:border-hud-secondary/60 hover:shadow-danger-glow
+           active:scale-95;
+  }
+
+  .btn-gold {
+    @apply px-hud-4 py-hud-2 rounded-hud font-display text-hud-sm
+           bg-hud-bg border border-shop-gold/40 text-shop-gold
+           transition-all duration-200 ease-out
+           hover:bg-shop-gold/10 hover:border-shop-gold/60 hover:shadow-gold-glow
+           active:scale-95;
+  }
+
+  /* Progress bar */
+  .progress-bar {
+    @apply w-full h-2 rounded-full bg-surface-glass overflow-hidden;
+  }
+  .progress-bar-fill {
+    @apply h-full rounded-full transition-all duration-300 ease-out;
+  }
+
+  /* Card for shop items / quest entries */
+  .game-card {
+    @apply bg-shop-card border border-hud-border/30 rounded-hud-lg p-hud-4
+           transition-all duration-200 ease-out
+           hover:border-hud-primary/40 hover:shadow-card-hover;
+  }
+
+  /* Tooltip */
+  .game-tooltip {
+    @apply absolute z-hud-max px-hud-3 py-hud-2 rounded-hud
+           bg-surface text-hud-sm font-body text-white/80
+           shadow-card pointer-events-none
+           animate-fade-in;
+  }
+
+  /* Modal overlay backdrop */
+  .modal-backdrop {
+    @apply fixed inset-0 z-hud-modal flex items-center justify-center
+           bg-surface-overlay backdrop-blur-hud
+           animate-fade-in;
+  }
+
+  /* Modal content panel */
+  .modal-panel {
+    @apply glass-panel p-hud-6 max-w-lg w-full mx-hud-4
+           animate-scale-in;
+  }
+}
+
+/* ── Performance: disable blur when quality is low ── */
+.no-blur .backdrop-blur-hud,
+.no-blur .glass-panel {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+/* ── Accessibility: reduced motion ── */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

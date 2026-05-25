@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="description" content="3D Highway Adventure — Explore a vast highway city, drive vehicles, visit shops, and complete quests in your browser." />
+    <meta name="theme-color" content="#0a0a0f" />
+    <title>Highway Adventure 3D</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Roboto:wght@300;400;700&display=swap" rel="stylesheet" />
+
+    <style>
+      /* Critical inline styles to prevent FOUC and ensure instant dark background */
+      html, body, #root {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #0a0a0f;
+        color: #e0e0e0;
+        font-family: 'Roboto', sans-serif;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+      }
+      /* Prevent text selection during gameplay */
+      #root {
+        -webkit-user-select: none;
+        user-select: none;
+        -webkit-tap-highlight-color: transparent;
+        touch-action: none;
+      }
+      /* Loading screen shown before React hydrates */
+      #loading-screen {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        background: #0a0a0f;
+        z-index: 99999;
+        transition: opacity 0.5s ease-out;
+      }
+      #loading-screen.fade-out {
+        opacity: 0;
+        pointer-events: none;
+      }
+      #loading-screen .spinner {
+        width: 48px;
+        height: 48px;
+        border: 3px solid rgba(0, 255, 204, 0.2);
+        border-top-color: #00ffcc;
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+      }
+      #loading-screen .title {
+        margin-top: 24px;
+        font-family: 'Orbitron', sans-serif;
+        font-size: 1.5rem;
+        font-weight: 700;
+        color: #00ffcc;
+        letter-spacing: 0.1em;
+      }
+      #loading-screen .subtitle {
+        margin-top: 8px;
+        font-size: 0.875rem;
+        color: rgba(255, 255, 255, 0.5);
+      }
+      @keyframes spin {
+        to { transform: rotate(360deg); }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="loading-screen">
+      <div class="spinner"></div>
+      <div class="title">HIGHWAY ADVENTURE</div>
+      <div class="subtitle">Loading world…</div>
+    </div>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

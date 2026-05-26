@@ -83,7 +83,8 @@ function chunkGridToId(cx: number, cz: number): ChunkId {
  * Initial State
  * ───────────────────────────────────────────── */
 
-const initialPosition: Vector3Data = { x: 0, y: 0.5, z: 0 };
+// Start in the right inner lane (lane centre X ≈ 4.35, matches HighwayNetworkSystem)
+const initialPosition: Vector3Data = { x: 4.35, y: 0.5, z: 0 };
 const initialChunkId = chunkGridToId(
   worldToChunkGrid(initialPosition.x, initialPosition.z).cx,
   worldToChunkGrid(initialPosition.x, initialPosition.z).cz,

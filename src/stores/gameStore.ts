@@ -44,6 +44,14 @@ interface VehicleState {
   isBoosting: boolean;
   boostTimer: number;
   steerAngle: number;
+  headingAngle: number;
+}
+
+/** Player position in world space */
+interface PlayerPosition {
+  x: number;
+  y: number;
+  z: number;
 }
 
 /** Input controls state */
@@ -70,6 +78,7 @@ interface GameStoreState {
   controls: ControlsState;
   gameMode: GameMode;
   activeQuestId: string | null;
+  playerPosition: PlayerPosition;
   notifications: Notification[];
 }
 
@@ -106,10 +115,14 @@ interface GameStoreActions {
   dismissNotification: (id: string) => void;
   clearNotifications: () => void;
 
+  /* ── Position ── */
+  setPlayerPosition: (pos: PlayerPosition) => void;
+
   /* ── Persistence helpers ── */
   exportSave: () => Record<string, unknown>;
   importSave: (data: Record<string, unknown>) => void;
   resetProfile: () => void;
+  resetVehicle: () => void;
 }
 
 /* ─────────────────────────────────────────────
@@ -146,6 +159,7 @@ export const useGameStore = create<GameStoreState & GameStoreActions>()((set, ge
     isBoosting: false,
     boostTimer: 0,
     steerAngle: 0,
+    headingAngle: 0,
   },
   controls: {
     throttle: false,
@@ -156,6 +170,7 @@ export const useGameStore = create<GameStoreState & GameStoreActions>()((set, ge
   },
   gameMode: 'playing' as GameMode,
   activeQuestId: null,
+  playerPosition: { x: 4.35, y: 0.5, z: 0 },
   notifications: [],
 
   /* ── Profile Actions ── */
@@ -371,6 +386,7 @@ export const useGameStore = create<GameStoreState & GameStoreActions>()((set, ge
         isBoosting: false,
         boostTimer: 0,
         steerAngle: 0,
+        headingAngle: 0,
       },
       controls: {
         throttle: false,
@@ -380,6 +396,30 @@ export const useGameStore = create<GameStoreState & GameStoreActions>()((set, ge
         boost: false,
       },
       activeQuestId: null,
+      playerPosition: { x: 4.35, y: 0.5, z: 0 },
       notifications: [],
+    }),
+
+  /* ── Position Actions ── */
+
+  setPlayerPosition: (pos) =>
+    set({ playerPosition: pos }),
+
+  /* ── Vehicle Actions ── */
+
+  resetVehicle: () =>
+    set({
+      vehicle: {
+        speed: 0,
+        maxSpeed: 200,
+        fuel: 100,
+        health: 100,
+        isDrifting: false,
+        isBoosting: false,
+        boostTimer: 0,
+        steerAngle: 0,
+        headingAngle: 0,
+      },
+      playerPosition: { x: 4.35, y: 0.5, z: 0 },
     }),
 }));

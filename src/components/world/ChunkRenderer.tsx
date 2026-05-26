@@ -3,7 +3,7 @@
 import { useRef, useMemo } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
-import { useGameStore } from '../../store/gameStore';
+import { useGameStore } from '../../stores/gameStore';
 import { useWorldStore } from '../../stores/worldStore';
 import { useQuestStore } from '../../stores/questStore';
 import { VFXManager } from '../../managers/VFXManager';
@@ -20,45 +20,29 @@ export function ChunkRenderer() {
 
   const coinGeo = useMemo(() => new THREE.CylinderGeometry(0.4, 0.4, 0.1, 16), []);
   const coinMat = useMemo(() => new THREE.MeshStandardMaterial({ color: '#fbbf24', metalness: 0.8, roughness: 0.3, emissive: '#f59e0b', emissiveIntensity: 0.4 }), []);
-  const lightGeo = useMemo(() => new THREE.BoxGeometry(0.2, 0.6, 0.2), []);
-  const lightMat = useMemo(() => new THREE.MeshStandardMaterial({ color: '#94a3b8', metalness: 0.5, roughness: 0.5 }), []);
 
   useMemo(() => {
     for (let i = 0; i < POOL_SIZE; i++) {
       const group = new THREE.Group();
       poolRef.current.push({ mesh: group, type: 'none', position: new THREE.Vector3(0, -50, 0), active: false });
     }
-  }, [coinGeo, coinMat, lightGeo, lightMat]);
+  }, [coinGeo, coinMat]);
 
-  const spawnProp = (x: number, y: number, z: number, type: string) => {
+  const spawnCoin = (x: number, y: number, z: number) => {
     const slot = poolRef.current.find(p => !p.active);
     if (!slot) return;
 
-    slot.type = type;
+    slot.type = 'coin';
     slot.active = true;
     slot.position.set(x, y, z);
     slot.mesh.position.copy(slot.position);
     slot.mesh.visible = true;
     slot.mesh.clear();
 
-    if (type === 'coin') {
-      const coin = new THREE.Mesh(coinGeo, coinMat);
-      coin.rotation.x = Math.PI / 2;
-      coin.castShadow = true;
-      slot.mesh.add(coin);
-    } else if (type === 'light') {
-      const pole = new THREE.Mesh(lightGeo, lightMat);
-      pole.position.y = 2.5;
-      pole.castShadow = true;
-      slot.mesh.add(pole);
-      
-      const lamp = new THREE.Mesh(
-        new THREE.BoxGeometry(0.6, 0.15, 0.3),
-        new THREE.MeshStandardMaterial({ color: '#fef08a', emissive: '#fef08a', emissiveIntensity: 2 })
-      );
-      lamp.position.set(0.4, 3.8, 0);
-      slot.mesh.add(lamp);
-    }
+    const coin = new THREE.Mesh(coinGeo, coinMat);
+    coin.rotation.x = Math.PI / 2;
+    coin.castShadow = true;
+    slot.mesh.add(coin);
   };
 
   useFrame((_, delta) => {
@@ -77,8 +61,7 @@ export function ChunkRenderer() {
         const x = pPos.x + Math.cos(angle) * dist;
         const z = pPos.z + Math.sin(angle) * dist;
         const y = 1.2;
-        const type = Math.random() > 0.7 ? 'coin' : 'light';
-        spawnProp(x, y, z, type);
+        spawnCoin(x, y, z);
       }
     });
 

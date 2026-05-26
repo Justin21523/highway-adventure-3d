@@ -3,11 +3,11 @@
 import { useRef, useMemo } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
-import { useGameStore } from '../../store/gameStore';
+import { useGameStore } from '../../stores/gameStore';
 import { CollisionSystem } from '../../physics/CollisionSystem';
 import { VFXManager } from '../../managers/VFXManager';
 import { AudioManager } from '../../managers/AudioManager';
-import { VEHICLE } from '../../constants/physics';
+import { VEHICLE_DEFAULTS } from '../../constants/physics';
 
 export function CollisionManager() {
   const groupRef = useRef<THREE.Group>(null);
@@ -64,7 +64,7 @@ export function CollisionManager() {
         const response = CollisionSystem.applyResponse(
           { x: pVel.x, y: pVel.y, z: pVel.z },
           { x: overlap.x, y: overlap.y, z: overlap.z },
-          VEHICLE.MASS,
+          VEHICLE_DEFAULTS.MASS,
           8
         );
 

@@ -22,11 +22,15 @@ import { usePerformanceStore } from '@/stores/performanceStore';
  * Constants
  * ───────────────────────────────────────────── */
 
-const LANE_WIDTH = 4;
-const LANES = [-LANE_WIDTH, 0, LANE_WIDTH];
-const SPAWN_DISTANCE = 120;
-const DESPAWN_DISTANCE = 150;
-const MAX_TRAFFIC = 30;
+// Lane X positions = lane CENTRES (matching HighwayNetworkSystem layout).
+// Right side (+X) = same direction as player (+Z), left side (-X) = oncoming (-Z).
+const LANES_SAME_DIR  = [4.35, 8.05];   // right inner + right outer lane centres
+const LANES_ONCOMING  = [-4.35, -8.05]; // left inner + left outer lane centres
+const ALL_LANES = [...LANES_SAME_DIR, ...LANES_ONCOMING];
+const SPAWN_RANGE_AHEAD  = 200;  // max distance ahead of player to spawn
+const SPAWN_RANGE_BEHIND = 60;   // max distance behind player to spawn (for same-dir overtaking)
+const DESPAWN_DISTANCE = 180;
+const MAX_TRAFFIC = 24;
 
 const CAR_TYPES = ['sedan', 'truck', 'sports'] as const;
 const CAR_COLORS: Record<string, number> = {
@@ -46,11 +50,11 @@ const CAR_COLORS: Record<string, number> = {
 
 interface TrafficCarData {
   id: string;
-  lane: number;
+  laneX: number;       // world X position of the lane centre
+  direction: 1 | -1;  // +1 = same as player (+Z), -1 = oncoming (-Z)
   speed: number;
   zPos: number;
   type: 'sedan' | 'truck' | 'sports';
-  targetLane: number;
   color: number;
   bodyLength: number;
   bodyHeight: number;
@@ -100,9 +104,25 @@ export function TrafficBatchSystem() {
     const worldState = useWorldStore.getState();
     const playerZ = worldState.playerPosition?.z ?? 0;
 
-    const spawnZ = playerZ + SPAWN_DISTANCE + Math.random() * 50;
-    const laneIndex = Math.floor(Math.random() * LANES.length);
-    const speed = 15 + Math.random() * 25;
+    // Pick a random lane (lane centres)
+    const laneX = ALL_LANES[Math.floor(Math.random() * ALL_LANES.length)];
+    const direction: 1 | -1 = laneX > 0 ? 1 : -1;
+
+    let spawnZ: number;
+    if (direction === 1) {
+      // Same-direction: mix of ahead (50-200) and just behind (-60 to -10).
+      // Behind-spawns let traffic overtake the player visually.
+      if (Math.random() < 0.7) {
+        spawnZ = playerZ + 50 + Math.random() * (SPAWN_RANGE_AHEAD - 50);
+      } else {
+        spawnZ = playerZ - 10 - Math.random() * SPAWN_RANGE_BEHIND;
+      }
+    } else {
+      // Oncoming: always spawn ahead so they approach the player from +Z
+      spawnZ = playerZ + 80 + Math.random() * (SPAWN_RANGE_AHEAD - 80);
+    }
+
+    const baseSpeed = 18 + Math.random() * 22;
     const type = CAR_TYPES[Math.floor(Math.random() * CAR_TYPES.length)];
     const colorKey = Object.keys(CAR_COLORS)[Math.floor(Math.random() * Object.keys(CAR_COLORS).length)];
     const color = CAR_COLORS[colorKey];
@@ -114,11 +134,11 @@ export function TrafficBatchSystem() {
 
     carsRef.current.set(carId, {
       id: carId,
-      lane: laneIndex,
-      speed,
+      laneX,
+      direction,
+      speed: baseSpeed,
       zPos: spawnZ,
       type,
-      targetLane: laneIndex,
       color,
       bodyLength,
       bodyHeight,
@@ -137,13 +157,14 @@ export function TrafficBatchSystem() {
     // Update matrices and colors
     for (let i = 0; i < count; i++) {
       const car = cars[i];
-      const laneX = LANES[car.targetLane] ?? LANES[car.lane];
-      const { zPos, bodyLength, bodyHeight } = car;
+      const { laneX, zPos, bodyLength, bodyHeight, direction } = car;
+      // Oncoming cars face -Z (rotation.y = Math.PI); same-dir face +Z (rotation.y = 0)
+      const yRot = direction === -1 ? Math.PI : 0;
 
       // Body
       dummyRef.position.set(laneX, bodyHeight / 2 + 0.2, zPos);
       dummyRef.scale.set(1, bodyHeight / 1.2, bodyLength / 4.5);
-      dummyRef.rotation.set(0, 0, 0);
+      dummyRef.rotation.set(0, yRot, 0);
       dummyRef.updateMatrix();
       bodyMeshRef.current!.setMatrixAt(i, dummyRef.matrix);
 
@@ -153,16 +174,17 @@ export function TrafficBatchSystem() {
       const b = (car.color & 255) / 255;
       bodyMeshRef.current!.setColorAt(i, new THREE.Color(r, g, b));
 
-      // Cabin
-      dummyRef.position.set(laneX, bodyHeight + 0.2 + 0.35, zPos - 0.2);
+      // Cabin (centred, slightly elevated and offset back)
+      dummyRef.position.set(laneX, bodyHeight + 0.2 + 0.35, zPos - 0.2 * direction);
       dummyRef.scale.set(0.8, 0.5, 0.5);
+      dummyRef.rotation.set(0, yRot, 0);
       dummyRef.updateMatrix();
       cabinMeshRef.current!.setMatrixAt(i, dummyRef.matrix);
 
-      // Wheels (4 wheels per car, but we'll just do 1 instance for simplicity)
+      // Wheel
       dummyRef.position.set(laneX, 0.35, zPos);
       dummyRef.scale.set(1, 1, 1);
-      dummyRef.rotation.set(0, 0, Math.PI / 2);
+      dummyRef.rotation.set(0, yRot, Math.PI / 2);
       dummyRef.updateMatrix();
       wheelMeshRef.current!.setMatrixAt(i, dummyRef.matrix);
     }
@@ -194,24 +216,18 @@ export function TrafficBatchSystem() {
     if (!worldState.playerPosition) return;
     const playerZ = worldState.playerPosition.z;
 
+    // Move each car along its travel direction
     for (const [, car] of carsRef.current) {
-      // Move car
-      car.zPos -= car.speed * delta;
-
-      // Lane change logic
-      if (Math.random() < 0.005) {
-        car.targetLane = Math.floor(Math.random() * LANES.length);
-      }
-
-      // Smooth lane transition
-      const targetX = LANES[car.targetLane];
-      // Lane position is handled in updateInstancedMesh
+      car.zPos += car.direction * car.speed * delta;
     }
 
-    // Remove off-screen cars
+    // Despawn cars far behind OR far ahead of the player (keeps density even
+    // when the player drives slowly — same-direction cars that drift too far
+    // ahead are removed and re-spawned closer).
     const toRemove: string[] = [];
     for (const [id, car] of carsRef.current) {
-      if (car.zPos < playerZ - DESPAWN_DISTANCE) {
+      const rel = car.zPos - playerZ;
+      if (rel < -DESPAWN_DISTANCE || rel > DESPAWN_DISTANCE + 80) {
         toRemove.push(id);
       }
     }
@@ -219,12 +235,13 @@ export function TrafficBatchSystem() {
       carsRef.current.delete(id);
     }
 
-    // Spawn new cars
-    while (carsRef.current.size < MAX_TRAFFIC) {
+    // Spawn at most 2 new cars per frame so they appear staggered, not all at once
+    let spawnsThisFrame = 0;
+    while (carsRef.current.size < MAX_TRAFFIC && spawnsThisFrame < 2) {
       spawnCar();
+      spawnsThisFrame++;
     }
 
-    // Update performance stats
     usePerformanceStore.getState().setActiveTrafficCars(carsRef.current.size);
   }, [spawnCar]);
 
@@ -239,6 +256,12 @@ export function TrafficBatchSystem() {
       MAX_TRAFFIC,
     );
     bodyMesh.castShadow = true;
+    // Disable frustum culling: the InstancedMesh's bounding sphere is computed
+    // from initial instance positions (all at origin), so once the player
+    // moves away from origin, the mesh's bounds no longer cover the actual
+    // instance positions and the whole mesh gets culled. Without this fix,
+    // all cars vanish as soon as the player moves.
+    bodyMesh.frustumCulled = false;
     bodyMeshRef.current = bodyMesh;
 
     // Create InstancedMesh for cabin
@@ -248,6 +271,7 @@ export function TrafficBatchSystem() {
       MAX_TRAFFIC,
     );
     cabinMesh.castShadow = true;
+    cabinMesh.frustumCulled = false;
     cabinMeshRef.current = cabinMesh;
 
     // Create InstancedMesh for wheels
@@ -257,6 +281,7 @@ export function TrafficBatchSystem() {
       MAX_TRAFFIC,
     );
     wheelMesh.castShadow = true;
+    wheelMesh.frustumCulled = false;
     wheelMeshRef.current = wheelMesh;
 
     // Initialize all instances as invisible

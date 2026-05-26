@@ -1,5 +1,5 @@
 // src/managers/SaveManager.ts
-import { useGameStore } from '../store/gameStore';
+import { useGameStore } from '../stores/gameStore';
 import { IPlayerProfile, IQuest } from '../types/core';
 
 const SAVE_KEY = 'highway_adventure_save_v1';

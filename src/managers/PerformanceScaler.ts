@@ -1,7 +1,7 @@
 // src/managers/PerformanceScaler.ts
 
 import * as THREE from 'three';
-import { useGameStore } from '../store/gameStore';
+import { useGameStore } from '../stores/gameStore';
 import { IPerformanceMetrics } from '../types/core';
 
 export class PerformanceScaler {

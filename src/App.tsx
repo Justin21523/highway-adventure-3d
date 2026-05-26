@@ -9,10 +9,9 @@
  * - Game state management (loading, playing, paused, shop, etc.)
  */
 
-import { Canvas } from '@react-three/fiber';
+import { Canvas, useFrame } from '@react-three/fiber';
 import { Stars, PerspectiveCamera } from '@react-three/drei';
 import React, { Suspense, useState, useCallback, useEffect } from 'react';
-import * as THREE from 'three';
 import { GameScene } from './components/GameScene';
 import { HUD } from './components/HUD';
 import { QuestLog } from './components/QuestLog';
@@ -27,8 +26,33 @@ import { useGameStore } from './stores/gameStore';
 import { useShopStore } from './stores/shopStore';
 import { ShopSystem } from './systems/ShopSystem';
 import { AudioManager } from './managers/AudioManager';
+import { VFXManager } from './managers/VFXManager';
+import { SaveManager } from './managers/SaveManager';
+import { InputManager } from './managers/InputManager';
 import { PerformanceScaler } from './managers/PerformanceScaler';
 import { detectWebGL, WebGLStatus } from './utils/webglDetect';
+import { ParallaxBackground } from './components/world/ParallaxBackground';
+
+/* ─────────────────────────────────────────────
+ * VFX Controller — VFX 粒子を初期化してシーンに追加
+ * ───────────────────────────────────────────── */
+
+function VFXController() {
+  const [points, setPoints] = useState<THREE.Points | null>(null);
+
+  useEffect(() => {
+    VFXManager.getInstance().init().then((p) => {
+      if (p) setPoints(p);
+    });
+  }, []);
+
+  useFrame((_, delta) => {
+    if (points) VFXManager.getInstance().update(delta);
+  });
+
+  if (!points) return null;
+  return <primitive object={points} />;
+}
 
 /* ─────────────────────────────────────────────
  * WebGL Detection Components
@@ -136,8 +160,8 @@ export default function App() {
       if (e.key === 'Escape') {
         const gameStore = useGameStore.getState();
         if (gameStore.gameMode === 'playing') {
-          gameStore.setGameMode('pause');
-        } else if (gameStore.gameMode === 'pause') {
+          gameStore.setGameMode('paused');
+        } else if (gameStore.gameMode === 'paused') {
           gameStore.setGameMode('playing');
         }
       }
@@ -168,6 +192,14 @@ export default function App() {
     await audio.init();
     audio.resumeContext();
     audio.startWindNoise();
+
+    // Initialize save manager
+    const save = SaveManager.getInstance();
+    save.init();
+
+    // Initialize input manager
+    const input = InputManager.getInstance();
+    input.init();
 
     // Simulate loading
     setTimeout(() => {
@@ -208,6 +240,7 @@ export default function App() {
         >
           <color attach="background" args={['#0b132b']} />
           <fog attach="fog" args={['#0b132b', 50, 200]} />
+          <PerspectiveCamera makeDefault position={[0, 4, -12]} fov={60} near={0.1} far={300} />
           <ambientLight intensity={0.4} />
           <directionalLight
             position={[30, 50, 20]}
@@ -217,9 +250,10 @@ export default function App() {
             shadow-mapSize-height={1024}
           />
           <Stars radius={200} depth={80} count={3000} factor={4} saturation={0} />
-          <PerspectiveCamera makeDefault position={[0, 4, -12]} fov={60} near={0.1} far={300} />
           <Suspense fallback={null}>
             <GameScene />
+            <ParallaxBackground />
+            <VFXController />
           </Suspense>
         </Canvas>
       </WebGLErrorBoundary>

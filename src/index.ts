@@ -41,7 +41,6 @@ export { useShops, useShopByCategory, useNearestShop, useInventory } from './hoo
 export { usePickups, usePickupsByType, useCoinCollection } from './hooks/usePickups';
 export { useEnvironment, useDayNightCycle } from './hooks/useEnvironment';
 export { usePlayerVehicle, useVehicleStats } from './hooks/usePlayerVehicle';
-export { useAudioSync, useEngineSound } from './hooks/useAudioSync';
 export { useQuests, useQuestsByCategory, useActiveQuest, useQuestStats } from './hooks/useQuests';
 
 /* ─────────────────────────────────────────────
@@ -52,11 +51,9 @@ export { GameScene } from './components/GameScene';
 export { PlayerVehicle } from './components/PlayerVehicle';
 export { CameraRig } from './components/CameraRig';
 export { WorldChunks } from './components/WorldChunks';
-export { TrafficCars } from './components/TrafficCars';
 export { ShopBuildings } from './components/ShopBuildings';
 export { PickupObjects } from './components/PickupObjects';
 export { EnvironmentLights } from './components/EnvironmentLights';
-export { SpeedBoostPads } from './components/SpeedBoostPads';
 export { Obstacles } from './components/Obstacles';
 export { PostProcessing } from './components/PostProcessing';
 export { HUD } from './components/HUD';
@@ -68,6 +65,8 @@ export { InteractionOverlay } from './components/InteractionOverlay';
 export { LoadingScreen } from './components/LoadingScreen';
 export { StartScreen } from './components/StartScreen';
 export { PauseMenu } from './components/PauseMenu';
+export { CollisionManager } from './components/world/CollisionManager';
+export { ChunkRenderer } from './components/world/ChunkRenderer';
 
 /* ─────────────────────────────────────────────
  * Utils
@@ -212,6 +211,11 @@ export type {
   PerformanceSettings,
 } from './types/performance';
 
+export type { POIType, POI, POIDiscovery, POIManagerConfig } from './types/poi';
+export type { BuildingType, BuildingConfig, BuildingFacade, BuildingBatchInstance } from './types/building';
+export type { AudioType, AudioConfig, AudioClip, AudioManagerConfig } from './types/audio';
+export type { VFXType, VFXConfig, VFXInstance, VFXManagerConfig } from './types/vfx';
+
 /* ─────────────────────────────────────────────
  * Constants
  * ───────────────────────────────────────────── */
@@ -240,4 +244,3 @@ export { VFXManager } from './managers/VFXManager';
 export { PerformanceScaler } from './managers/PerformanceScaler';
 export { InputManager } from './managers/InputManager';
 export { SaveManager } from './managers/SaveManager';
-export { AssetLoader } from './managers/AssetLoader';

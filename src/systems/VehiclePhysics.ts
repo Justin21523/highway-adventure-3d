@@ -15,6 +15,7 @@ import { useQuestStore } from '@/stores/questStore';
 import { GameRuntime } from './GameRuntime';
 import { PHYSICS } from '@/constants/physics';
 import type { GameEventType } from './GameRuntime';
+import { DRIVE_CHUNK_SIZE, sampleDriveSurface } from '@/utils/driveSurface';
 
 /* ─────────────────────────────────────────────
  * VehiclePhysics Singleton
@@ -300,17 +301,18 @@ export class VehiclePhysics {
     const newX = currentPos.x + Math.sin(this.headingAngle) * moveDistance;
     const newZ = currentPos.z + Math.cos(this.headingAngle) * moveDistance;
 
-    // Clamp to world bounds
-    const clampedX = Math.max(-500, Math.min(500, newX));
+    const surface = sampleDriveSurface(newX, newZ, worldStore.isElevated);
 
-    worldStore.setPlayerPosition({ x: clampedX, y: currentPos.y, z: newZ });
+    worldStore.setPlayerPosition({ x: newX, y: surface.playerY, z: newZ });
+    worldStore.setElevation(surface.elevation, surface.isElevated);
+    gameStore.setPlayerPosition({ x: newX, y: surface.playerY, z: newZ });
 
     // Expose heading to game store so PlayerVehicle can rotate the mesh correctly
     gameStore.updateVehicleState({ headingAngle: this.headingAngle });
 
     // Update current chunk ID
-    const chunkX = Math.floor(clampedX / 100);
-    const chunkZ = Math.floor(newZ / 100);
+    const chunkX = Math.floor(newX / DRIVE_CHUNK_SIZE);
+    const chunkZ = Math.floor(newZ / DRIVE_CHUNK_SIZE);
     const chunkId = `${chunkX}_${chunkZ}`;
     if (worldStore.currentChunkId !== chunkId) {
       worldStore.setCurrentChunk(chunkId);

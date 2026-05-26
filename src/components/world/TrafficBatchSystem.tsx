@@ -17,6 +17,7 @@ import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { useWorldStore } from '@/stores/worldStore';
 import { usePerformanceStore } from '@/stores/performanceStore';
+import { DRIVE_ELEVATED_X, DRIVE_ELEVATED_Y } from '@/utils/driveSurface';
 
 /* ─────────────────────────────────────────────
  * Constants
@@ -27,10 +28,13 @@ import { usePerformanceStore } from '@/stores/performanceStore';
 const LANES_SAME_DIR  = [4.35, 8.05];   // right inner + right outer lane centres
 const LANES_ONCOMING  = [-4.35, -8.05]; // left inner + left outer lane centres
 const ALL_LANES = [...LANES_SAME_DIR, ...LANES_ONCOMING];
+const ELEVATED_LANES_SAME_DIR = [DRIVE_ELEVATED_X + 2.45, DRIVE_ELEVATED_X + 5.95];
+const ELEVATED_LANES_ONCOMING = [DRIVE_ELEVATED_X - 2.45, DRIVE_ELEVATED_X - 5.95];
+const ALL_ELEVATED_LANES = [...ELEVATED_LANES_SAME_DIR, ...ELEVATED_LANES_ONCOMING];
 const SPAWN_RANGE_AHEAD  = 200;  // max distance ahead of player to spawn
 const SPAWN_RANGE_BEHIND = 60;   // max distance behind player to spawn (for same-dir overtaking)
 const DESPAWN_DISTANCE = 180;
-const MAX_TRAFFIC = 24;
+const MAX_TRAFFIC = 40;
 
 const CAR_TYPES = ['sedan', 'truck', 'sports'] as const;
 const CAR_COLORS: Record<string, number> = {
@@ -51,6 +55,7 @@ const CAR_COLORS: Record<string, number> = {
 interface TrafficCarData {
   id: string;
   laneX: number;       // world X position of the lane centre
+  yBase: number;       // road surface height
   direction: 1 | -1;  // +1 = same as player (+Z), -1 = oncoming (-Z)
   speed: number;
   zPos: number;
@@ -104,9 +109,12 @@ export function TrafficBatchSystem() {
     const worldState = useWorldStore.getState();
     const playerZ = worldState.playerPosition?.z ?? 0;
 
-    // Pick a random lane (lane centres)
-    const laneX = ALL_LANES[Math.floor(Math.random() * ALL_LANES.length)];
-    const direction: 1 | -1 = laneX > 0 ? 1 : -1;
+    const elevated = Math.random() < 0.38;
+    const lanes = elevated ? ALL_ELEVATED_LANES : ALL_LANES;
+    const laneX = lanes[Math.floor(Math.random() * lanes.length)];
+    const direction: 1 | -1 = elevated
+      ? (laneX > DRIVE_ELEVATED_X ? 1 : -1)
+      : (laneX > 0 ? 1 : -1);
 
     let spawnZ: number;
     if (direction === 1) {
@@ -135,6 +143,7 @@ export function TrafficBatchSystem() {
     carsRef.current.set(carId, {
       id: carId,
       laneX,
+      yBase: elevated ? DRIVE_ELEVATED_Y : 0,
       direction,
       speed: baseSpeed,
       zPos: spawnZ,
@@ -157,12 +166,12 @@ export function TrafficBatchSystem() {
     // Update matrices and colors
     for (let i = 0; i < count; i++) {
       const car = cars[i];
-      const { laneX, zPos, bodyLength, bodyHeight, direction } = car;
+      const { laneX, yBase, zPos, bodyLength, bodyHeight, direction } = car;
       // Oncoming cars face -Z (rotation.y = Math.PI); same-dir face +Z (rotation.y = 0)
       const yRot = direction === -1 ? Math.PI : 0;
 
       // Body
-      dummyRef.position.set(laneX, bodyHeight / 2 + 0.2, zPos);
+      dummyRef.position.set(laneX, yBase + bodyHeight / 2 + 0.2, zPos);
       dummyRef.scale.set(1, bodyHeight / 1.2, bodyLength / 4.5);
       dummyRef.rotation.set(0, yRot, 0);
       dummyRef.updateMatrix();
@@ -175,14 +184,14 @@ export function TrafficBatchSystem() {
       bodyMeshRef.current!.setColorAt(i, new THREE.Color(r, g, b));
 
       // Cabin (centred, slightly elevated and offset back)
-      dummyRef.position.set(laneX, bodyHeight + 0.2 + 0.35, zPos - 0.2 * direction);
+      dummyRef.position.set(laneX, yBase + bodyHeight + 0.2 + 0.35, zPos - 0.2 * direction);
       dummyRef.scale.set(0.8, 0.5, 0.5);
       dummyRef.rotation.set(0, yRot, 0);
       dummyRef.updateMatrix();
       cabinMeshRef.current!.setMatrixAt(i, dummyRef.matrix);
 
       // Wheel
-      dummyRef.position.set(laneX, 0.35, zPos);
+      dummyRef.position.set(laneX, yBase + 0.35, zPos);
       dummyRef.scale.set(1, 1, 1);
       dummyRef.rotation.set(0, yRot, Math.PI / 2);
       dummyRef.updateMatrix();

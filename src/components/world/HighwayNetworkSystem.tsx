@@ -19,14 +19,30 @@ import { useRef, useEffect, useMemo } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { useWorldStore } from '../../stores/worldStore';
+import {
+  DRIVE_CHUNK_SIZE,
+  DRIVE_ACCESS_RAMP_LENGTH,
+  DRIVE_ACCESS_RAMP_WIDTH,
+  DRIVE_ELEVATED_RAMP_X,
+  DRIVE_ELEVATED_WIDTH,
+  DRIVE_ELEVATED_X,
+  DRIVE_ELEVATED_Y,
+  driveElevatedRouteX,
+  driveElevatedRouteZ,
+  driveRingAnchor,
+  getDriveAccessRampsForChunk,
+  getDriveChunkType,
+  type DriveAccessRamp,
+  type DriveChunkType,
+} from '../../utils/driveSurface';
 
 /* ─────────────────────────────────────────────
  * Constants
  * ───────────────────────────────────────────── */
 
-const CHUNK_LENGTH = 80;       // Z length of each chunk (meters)
-const LOAD_AHEAD = 12;         // chunks ahead of player to keep loaded
-const LOAD_BEHIND = 6;         // chunks behind player to keep loaded
+const CHUNK_LENGTH = DRIVE_CHUNK_SIZE; // square chunk size in meters
+const LOAD_RADIUS = 3;                 // 7x7 active neighborhood around player
+const UNLOAD_RADIUS = LOAD_RADIUS + 2;
 
 // Road cross-section layout (X positions, centered on 0)
 const LANE_WIDTH = 3.7;
@@ -50,38 +66,38 @@ export const LANE_CENTER_INNER_L = -LANE_CENTER_INNER_R;
 export const LANE_CENTER_OUTER_L = -LANE_CENTER_OUTER_R;
 
 // Elevated highway (running parallel to ground highway, ~8m above)
-const ELEVATED_Y       = 9;     // height of elevated deck above ground
-const ELEVATED_WIDTH   = 18;    // total width of elevated road (4 lanes + median + shoulders)
+const ELEVATED_Y       = DRIVE_ELEVATED_Y;     // height of elevated deck above ground
+const ELEVATED_WIDTH   = DRIVE_ELEVATED_WIDTH; // total width of elevated road (4 lanes + median + shoulders)
+const ELEVATED_MAIN_X  = DRIVE_ELEVATED_X;     // side-running elevated deck that connects to ramps
 const E_LANE_WIDTH     = 3.5;
 const E_MEDIAN         = 1.4;
 const E_HALF_MEDIAN    = E_MEDIAN / 2;
 const E_LANE_INNER_R   = E_HALF_MEDIAN + E_LANE_WIDTH / 2;        // 2.45
 const E_LANE_OUTER_R   = E_HALF_MEDIAN + E_LANE_WIDTH * 1.5;      // 5.95
-const E_LANE_INNER_L   = -E_LANE_INNER_R;
-const E_LANE_OUTER_L   = -E_LANE_OUTER_R;
 const E_OUTER_EDGE     = E_HALF_MEDIAN + E_LANE_WIDTH * 2;        // 7.7
 const E_HALF_WIDTH     = ELEVATED_WIDTH / 2;                       // 9.0
 
-type ChunkType =
-  | 'STRAIGHT'
-  | 'RAMP_ON'         // side on-ramp at ground level
-  | 'RAMP_OFF'        // side off-ramp at ground level
-  | 'TOLL'            // toll plaza on ground
-  | 'OVERPASS'        // perpendicular bridge crossing both highways
-  | 'ELEVATED_UP'     // up-ramp from ground to elevated
-  | 'ELEVATED_DOWN';  // down-ramp from elevated to ground
+type ChunkType = DriveChunkType;
+const getChunkType = getDriveChunkType;
 
-function getChunkType(idx: number): ChunkType {
-  const abs = Math.abs(idx);
-  if (abs === 0) return 'STRAIGHT';
-  // Priority: more specific first
-  if (abs % 24 === 12) return 'OVERPASS';
-  if (abs % 16 === 8)  return 'TOLL';
-  if (abs % 10 === 5)  return 'ELEVATED_UP';
-  if (abs % 10 === 0)  return 'ELEVATED_DOWN';
-  if (abs % 8  === 0)  return 'RAMP_ON';
-  if (abs % 8  === 4)  return 'RAMP_OFF';
-  return 'STRAIGHT';
+interface ChunkCoord {
+  cx: number;
+  cz: number;
+}
+
+interface RoadPoint {
+  x: number;
+  z: number;
+}
+
+interface TrafficMotion {
+  axis: 'x' | 'z';
+  direction: 1 | -1;
+  min: number;
+  max: number;
+  speed: number;
+  yFrom?: number;
+  yTo?: number;
 }
 
 /* ─────────────────────────────────────────────
@@ -91,8 +107,11 @@ function getChunkType(idx: number): ChunkType {
 function makeShared() {
   // ── Geometries lying flat (X across, Z forward) ──
   // PlaneGeometry(X_extent, Z_extent) after rotation.x = -π/2
+  const terrainGeo  = new THREE.PlaneGeometry(CHUNK_LENGTH, CHUNK_LENGTH);
+  const unitPlaneGeo = new THREE.PlaneGeometry(1, 1);
+  const unitBoxGeo = new THREE.BoxGeometry(1, 1, 1);
   const roadGeo     = new THREE.PlaneGeometry(TOTAL_ROAD_WIDTH, CHUNK_LENGTH);
-  const grassGeo    = new THREE.PlaneGeometry(80, CHUNK_LENGTH);
+  const grassGeo    = new THREE.PlaneGeometry(CHUNK_LENGTH, CHUNK_LENGTH);
   const shoulderGeo = new THREE.PlaneGeometry(SHOULDER_WIDTH, CHUNK_LENGTH);
   const medianFloorGeo = new THREE.PlaneGeometry(MEDIAN_WIDTH, CHUNK_LENGTH);
   // Lane lines (thin in X, long in Z)
@@ -154,6 +173,8 @@ function makeShared() {
   const rampSurfaceGeo = new THREE.PlaneGeometry(4.0, 90);
   // Ramp guardrails along the ramp
   const rampRailGeo    = new THREE.BoxGeometry(0.15, 0.8, 90);
+  const trafficBodyGeo = new THREE.BoxGeometry(2, 0.9, 4.4);
+  const trafficCabinGeo = new THREE.BoxGeometry(1.55, 0.65, 2.0);
 
   // Decorations: buildings, trees, hills, cross streets
   // Buildings come in a few base shapes; we scale per-instance
@@ -173,8 +194,9 @@ function makeShared() {
   const crossLineGeo   = new THREE.PlaneGeometry(110, 0.18);
 
   // ── Materials ──
-  const asphalt   = new THREE.MeshStandardMaterial({ color: '#181820', roughness: 0.94, metalness: 0.04 });
-  const rampMat   = new THREE.MeshStandardMaterial({ color: '#1f1f28', roughness: 0.9,  metalness: 0.04 });
+  const asphalt   = new THREE.MeshStandardMaterial({ color: '#181820', roughness: 0.94, metalness: 0.04, side: THREE.DoubleSide });
+  const asphaltAlt = new THREE.MeshStandardMaterial({ color: '#202129', roughness: 0.96, metalness: 0.03, side: THREE.DoubleSide });
+  const rampMat   = new THREE.MeshStandardMaterial({ color: '#1f1f28', roughness: 0.9,  metalness: 0.04, side: THREE.DoubleSide });
   const grass     = new THREE.MeshStandardMaterial({ color: '#1d4d1b', roughness: 1.0 });
   const shoulder  = new THREE.MeshStandardMaterial({ color: '#3a3a40', roughness: 0.95 });
   const median    = new THREE.MeshStandardMaterial({ color: '#274d1f', roughness: 1.0 });
@@ -189,6 +211,10 @@ function makeShared() {
   const tollWin   = new THREE.MeshStandardMaterial({ color: '#fde68a', emissive: '#fde047', emissiveIntensity: 1.5 });
   const orange    = new THREE.MeshStandardMaterial({ color: '#f97316', emissive: '#ea580c', emissiveIntensity: 0.4 });
   const signMat   = new THREE.MeshStandardMaterial({ color: '#16a34a', roughness: 0.6 });
+  const trafficBlue = new THREE.MeshStandardMaterial({ color: '#2563eb', roughness: 0.45, metalness: 0.35 });
+  const trafficRed = new THREE.MeshStandardMaterial({ color: '#dc2626', roughness: 0.45, metalness: 0.35 });
+  const trafficSilver = new THREE.MeshStandardMaterial({ color: '#94a3b8', roughness: 0.35, metalness: 0.55 });
+  const trafficGlass = new THREE.MeshStandardMaterial({ color: '#93c5fd', roughness: 0.2, metalness: 0.4 });
 
   // Building materials (a few variants)
   const buildingA = new THREE.MeshStandardMaterial({ color: '#6b7280', roughness: 0.7, metalness: 0.15 });
@@ -204,6 +230,7 @@ function makeShared() {
 
   return {
     geo: {
+      terrain: terrainGeo, unitPlane: unitPlaneGeo, unitBox: unitBoxGeo,
       road: roadGeo, grass: grassGeo, shoulder: shoulderGeo,
       medianFloor: medianFloorGeo, medianBar: medianBarGeo, rail: railGeo,
       solidLine: solidLineGeo, edgeLine: edgeLineGeo, dashLine: dashLineGeo,
@@ -225,11 +252,13 @@ function makeShared() {
       eDash: eDashGeo, eRail: eRailGeo,
       ePillar: ePillarGeo, ePillarCap: ePillarCapGeo, eUnderBeam: eUnderBeamGeo,
       rampSurface: rampSurfaceGeo, rampRail: rampRailGeo,
+      trafficBody: trafficBodyGeo, trafficCabin: trafficCabinGeo,
     },
     mat: {
-      asphalt, ramp: rampMat, grass, shoulder, median,
+      asphalt, asphaltAlt, ramp: rampMat, grass, shoulder, median,
       white, yellow, concrete, steel, pole: poleMat, light: lightMat,
       tollWall, tollRoof, tollWin, orange, sign: signMat,
+      trafficBlue, trafficRed, trafficSilver, trafficGlass,
       buildingA, buildingB, buildingC, buildingD, windowMat,
       trunkMat, canopyMat, hillMat,
     },
@@ -242,6 +271,272 @@ type Shared = ReturnType<typeof makeShared>;
  * Chunk builders
  * ───────────────────────────────────────────── */
 
+function buildTerrainBase(g: THREE.Group, shared: Shared) {
+  const terrain = new THREE.Mesh(shared.geo.terrain, shared.mat.grass);
+  terrain.rotation.x = -Math.PI / 2;
+  terrain.position.y = -0.06;
+  terrain.receiveShadow = true;
+  g.add(terrain);
+}
+
+function chunkKey(cx: number, cz: number) {
+  return `${cx}_${cz}`;
+}
+
+function hash2(cx: number, cz: number, salt = 0) {
+  return ((cx * 73856093) ^ (cz * 19349663) ^ (salt * 83492791)) >>> 0;
+}
+
+function isMidpointInChunk(point: RoadPoint, cx: number, cz: number) {
+  const centerX = cx * CHUNK_LENGTH;
+  const centerZ = cz * CHUNK_LENGTH;
+  return (
+    point.x >= centerX - CHUNK_LENGTH / 2 &&
+    point.x < centerX + CHUNK_LENGTH / 2 &&
+    point.z >= centerZ - CHUNK_LENGTH / 2 &&
+    point.z < centerZ + CHUNK_LENGTH / 2
+  );
+}
+
+function toLocal(point: RoadPoint, cx: number, cz: number): RoadPoint {
+  return {
+    x: point.x - cx * CHUNK_LENGTH,
+    z: point.z - cz * CHUNK_LENGTH,
+  };
+}
+
+function addScaledPlane(
+  parent: THREE.Group,
+  shared: Shared,
+  material: THREE.Material,
+  x: number,
+  y: number,
+  z: number,
+  width: number,
+  length: number,
+) {
+  const mesh = new THREE.Mesh(shared.geo.unitPlane, material);
+  mesh.rotation.x = -Math.PI / 2;
+  mesh.position.set(x, y, z);
+  mesh.scale.set(width, length, 1);
+  mesh.receiveShadow = true;
+  parent.add(mesh);
+  return mesh;
+}
+
+function addScaledBox(
+  parent: THREE.Group,
+  shared: Shared,
+  material: THREE.Material,
+  x: number,
+  y: number,
+  z: number,
+  width: number,
+  height: number,
+  length: number,
+) {
+  const mesh = new THREE.Mesh(shared.geo.unitBox, material);
+  mesh.position.set(x, y, z);
+  mesh.scale.set(width, height, length);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  parent.add(mesh);
+  return mesh;
+}
+
+function addTrafficCar(
+  parent: THREE.Group,
+  shared: Shared,
+  x: number,
+  y: number,
+  z: number,
+  yaw: number,
+  material: THREE.Material,
+  motion?: TrafficMotion,
+) {
+  const car = new THREE.Group();
+  car.position.set(x, y, z);
+  car.rotation.y = yaw;
+  car.userData.isTrafficCar = true;
+  if (motion) car.userData.trafficMotion = motion;
+  parent.add(car);
+
+  const body = new THREE.Mesh(shared.geo.trafficBody, material);
+  body.position.y = 0.45;
+  body.castShadow = true;
+  car.add(body);
+
+  const cabin = new THREE.Mesh(shared.geo.trafficCabin, shared.mat.trafficGlass);
+  cabin.position.set(0, 1.05, -0.25);
+  cabin.castShadow = true;
+  car.add(cabin);
+
+  return car;
+}
+
+function updateTrafficCar(car: THREE.Group, delta: number) {
+  const motion = car.userData.trafficMotion as TrafficMotion | undefined;
+  if (!motion) return;
+
+  const next = car.position[motion.axis] + motion.direction * motion.speed * delta;
+  if (next > motion.max) {
+    car.position[motion.axis] = motion.min + (next - motion.max);
+  } else if (next < motion.min) {
+    car.position[motion.axis] = motion.max - (motion.min - next);
+  } else {
+    car.position[motion.axis] = next;
+  }
+
+  if (motion.yFrom !== undefined && motion.yTo !== undefined) {
+    const span = motion.max - motion.min;
+    const t = span > 0 ? (car.position[motion.axis] - motion.min) / span : 0;
+    car.position.y = motion.yFrom + (motion.yTo - motion.yFrom) * t;
+  }
+}
+
+function collectTrafficCars(root: THREE.Group, target: Set<THREE.Group>) {
+  root.traverse((child) => {
+    if (child instanceof THREE.Group && child.userData.isTrafficCar) {
+      target.add(child);
+    }
+  });
+}
+
+function removeTrafficCars(root: THREE.Group, target: Set<THREE.Group>) {
+  root.traverse((child) => {
+    if (child instanceof THREE.Group && child.userData.isTrafficCar) {
+      target.delete(child);
+    }
+  });
+}
+
+interface SegmentOptions {
+  width: number;
+  y?: number;
+  elevated?: boolean;
+  divided?: boolean;
+  guardrails?: boolean;
+  curbs?: boolean;
+  trafficSeed?: number;
+  trafficDensity?: number;
+  material?: THREE.Material;
+}
+
+function addRoadSegment(
+  parent: THREE.Group,
+  shared: Shared,
+  start: RoadPoint,
+  end: RoadPoint,
+  options: SegmentOptions,
+) {
+  const dx = end.x - start.x;
+  const dz = end.z - start.z;
+  const length = Math.hypot(dx, dz);
+  if (length < 1) return;
+
+  const y = options.y ?? 0.01;
+  const width = options.width;
+  const yaw = Math.atan2(dx, dz);
+  const segment = new THREE.Group();
+  segment.position.set((start.x + end.x) / 2, y, (start.z + end.z) / 2);
+  segment.rotation.y = yaw;
+  parent.add(segment);
+
+  if (options.elevated) {
+    addScaledBox(
+      segment,
+      shared,
+      shared.mat.concrete,
+      0,
+      -0.22,
+      0,
+      width + 1.2,
+      0.42,
+      length + 0.8,
+    );
+  }
+
+  addScaledPlane(
+    segment,
+    shared,
+    options.material ?? shared.mat.asphaltAlt,
+    0,
+    options.elevated ? 0.03 : 0,
+    0,
+    width,
+    length + 0.6,
+  );
+
+  const medianWidth = options.divided ? 1.25 : 0;
+  if (options.divided) {
+    addScaledBox(segment, shared, shared.mat.concrete, 0, 0.3, 0, medianWidth, 0.6, length);
+    for (const sx of [-1, 1]) {
+      addScaledPlane(segment, shared, shared.mat.yellow, sx * (medianWidth / 2 + 0.25), 0.035, 0, 0.16, length * 0.96);
+    }
+  } else {
+    addScaledPlane(segment, shared, shared.mat.yellow, 0, 0.035, 0, 0.18, length * 0.92);
+  }
+
+  for (const sx of [-1, 1]) {
+    addScaledPlane(segment, shared, shared.mat.white, sx * (width / 2 - 0.75), 0.034, 0, 0.14, length * 0.95);
+  }
+
+  if (options.guardrails) {
+    for (const sx of [-1, 1]) {
+      addScaledBox(segment, shared, shared.mat.steel, sx * (width / 2 + 0.18), 0.42, 0, 0.24, 0.84, length);
+    }
+  }
+
+  if (options.curbs) {
+    for (const sx of [-1, 1]) {
+      addScaledBox(segment, shared, shared.mat.shoulder, sx * (width / 2 + 0.08), 0.09, 0, 0.35, 0.18, length);
+    }
+  }
+
+  if (options.elevated) {
+    for (const sx of [-1, 1]) {
+      const pillar = new THREE.Mesh(shared.geo.ePillar, shared.mat.concrete);
+      pillar.position.set(sx * (width / 2 - 2), -ELEVATED_Y / 2, 0);
+      pillar.castShadow = true;
+      segment.add(pillar);
+    }
+    addScaledBox(segment, shared, shared.mat.concrete, 0, -0.35, 0, width + 1, 0.45, 2.4);
+  }
+
+  if (options.trafficSeed !== undefined && options.trafficDensity && options.trafficDensity > 0) {
+    const rng = mulberry32(options.trafficSeed);
+    const carCount = Math.max(
+      1,
+      Math.min(4, Math.floor((length / 60) * options.trafficDensity + rng() * 2.2)),
+    );
+    const carMats = [shared.mat.trafficBlue, shared.mat.trafficRed, shared.mat.trafficSilver];
+    for (let i = 0; i < carCount; i++) {
+      const laneSide = rng() < 0.5 ? -1 : 1;
+      const laneX = laneSide * (options.divided ? width * 0.25 : width * 0.18);
+      const laneNoise = (rng() - 0.5) * Math.max(0.3, width * 0.08);
+      const carZ = ((i + 0.35 + rng() * 0.3) / carCount - 0.5) * length * 0.82;
+      const carYaw = laneSide > 0 ? 0 : Math.PI;
+      const direction = laneSide > 0 ? 1 : -1;
+      addTrafficCar(
+        segment,
+        shared,
+        laneX + laneNoise,
+        options.elevated ? 0.13 : 0.1,
+        carZ,
+        carYaw,
+        carMats[Math.floor(rng() * carMats.length)],
+        {
+          axis: 'z',
+          direction,
+          min: -length / 2 + 5,
+          max: length / 2 - 5,
+          speed: 8 + rng() * 14,
+        },
+      );
+    }
+  }
+}
+
 function buildStraightBase(g: THREE.Group, shared: Shared) {
   const { geo, mat } = shared;
 
@@ -251,15 +546,6 @@ function buildStraightBase(g: THREE.Group, shared: Shared) {
   road.position.y = 0;
   road.receiveShadow = true;
   g.add(road);
-
-  // Grass on both sides
-  for (const sx of [-1, 1]) {
-    const grass = new THREE.Mesh(geo.grass, mat.grass);
-    grass.rotation.x = -Math.PI / 2;
-    grass.position.set(sx * (ROAD_HALF + 40), -0.05, 0);
-    grass.receiveShadow = true;
-    g.add(grass);
-  }
 
   // Hard shoulders (paler asphalt strip just inside guardrail)
   for (const sx of [-1, 1]) {
@@ -337,6 +623,37 @@ function buildStreetlights(g: THREE.Group, shared: Shared) {
   }
 }
 
+function addMainHighwayTraffic(g: THREE.Group, shared: Shared, idx: number) {
+  const rng = mulberry32(Math.abs(idx) * 10501 + 401);
+  const laneCenters = [
+    { x: LANE_CENTER_INNER_R, yaw: 0, direction: 1 as const },
+    { x: LANE_CENTER_OUTER_R, yaw: 0, direction: 1 as const },
+    { x: LANE_CENTER_INNER_L, yaw: Math.PI, direction: -1 as const },
+    { x: LANE_CENTER_OUTER_L, yaw: Math.PI, direction: -1 as const },
+  ];
+  const carMats = [shared.mat.trafficBlue, shared.mat.trafficRed, shared.mat.trafficSilver];
+
+  for (let i = 0; i < 5; i++) {
+    const lane = laneCenters[Math.floor(rng() * laneCenters.length)];
+    addTrafficCar(
+      g,
+      shared,
+      lane.x + (rng() - 0.5) * 0.35,
+      0.1,
+      -CHUNK_LENGTH / 2 + 10 + i * 20 + rng() * 8,
+      lane.yaw,
+      carMats[Math.floor(rng() * carMats.length)],
+      {
+        axis: 'z',
+        direction: lane.direction,
+        min: -CHUNK_LENGTH / 2 + 6,
+        max: CHUNK_LENGTH / 2 - 6,
+        speed: 11 + rng() * 15,
+      },
+    );
+  }
+}
+
 // Build a flat angled ramp using a parent group:
 // - parent group holds the world Y rotation (orientation in the X-Z plane)
 // - child mesh lies flat (rotation.x = -π/2) in the group's local frame
@@ -357,6 +674,8 @@ function buildAngledRamp(
   ramp.position.set(0, 0, 0);
   ramp.receiveShadow = true;
   rampGroup.add(ramp);
+
+  return rampGroup;
 }
 
 function buildRampOn(g: THREE.Group, shared: Shared) {
@@ -380,7 +699,14 @@ function buildRampOn(g: THREE.Group, shared: Shared) {
   }
 
   // Angled ramp road merging in from the right-rear (yaw rotates clockwise from above)
-  buildAngledRamp(g, shared, X_SHOULDER_END + LANE_WIDTH + 8, -25, -25);
+  const rampGroup = buildAngledRamp(g, shared, X_SHOULDER_END + LANE_WIDTH + 8, -25, -25);
+  addTrafficCar(rampGroup, shared, 0, 0.1, -18, 0, shared.mat.trafficBlue, {
+    axis: 'z',
+    direction: 1,
+    min: -30,
+    max: 30,
+    speed: 9,
+  });
 
   addSign(g, shared, X_SHOULDER_END + 1.5, -CHUNK_LENGTH / 3);
 }
@@ -404,7 +730,14 @@ function buildRampOff(g: THREE.Group, shared: Shared) {
   }
 
   // Angled ramp peeling out to the right-front (yaw counter-clockwise from above)
-  buildAngledRamp(g, shared, X_SHOULDER_END + LANE_WIDTH + 8, 25, 25);
+  const rampGroup = buildAngledRamp(g, shared, X_SHOULDER_END + LANE_WIDTH + 8, 25, 25);
+  addTrafficCar(rampGroup, shared, 0, 0.1, 18, 0, shared.mat.trafficRed, {
+    axis: 'z',
+    direction: 1,
+    min: -30,
+    max: 30,
+    speed: 10,
+  });
 
   addSign(g, shared, X_SHOULDER_END + 1.5, CHUNK_LENGTH / 3);
 }
@@ -467,6 +800,8 @@ function buildOverpass(g: THREE.Group, shared: Shared) {
   // Bridge crosses ABOVE the elevated highway (Y=9), so place it at Y=15
   const bridgeY = 15;
 
+  addScaledBox(g, shared, mat.concrete, 0, bridgeY - 0.22, 0, 80, 0.42, 12.5);
+
   // Bridge deck: PlaneGeometry(80, 12) laid flat → spans 80 along X, 12 along Z
   const deck = new THREE.Mesh(geo.bridgeDeck, mat.asphalt);
   deck.rotation.x = -Math.PI / 2;
@@ -504,6 +839,21 @@ function buildOverpass(g: THREE.Group, shared: Shared) {
   centerLine.rotation.x = -Math.PI / 2;
   centerLine.position.set(0, bridgeY + 0.01, 0);
   g.add(centerLine);
+
+  addTrafficCar(g, shared, -18, bridgeY + 0.1, -2.2, Math.PI / 2, mat.trafficBlue, {
+    axis: 'x',
+    direction: 1,
+    min: -38,
+    max: 38,
+    speed: 10,
+  });
+  addTrafficCar(g, shared, 16, bridgeY + 0.1, 2.2, -Math.PI / 2, mat.trafficSilver, {
+    axis: 'x',
+    direction: -1,
+    min: -38,
+    max: 38,
+    speed: 11,
+  });
 }
 
 /* ─────────────────────────────────────────────
@@ -534,20 +884,34 @@ function pickBuilding(rng: () => number, shared: Shared) {
  * Roadside decorations: buildings, trees, hills, cross streets
  * ───────────────────────────────────────────── */
 
-function addRoadsideDecorations(g: THREE.Group, shared: Shared, idx: number) {
-  const rng = mulberry32(Math.abs(idx) * 7919 + 13);
+function addRoadsideDecorations(g: THREE.Group, shared: Shared, cx: number, cz: number, hasMainHighway: boolean) {
+  const rng = mulberry32(hash2(cx, cz, 13));
   const { geo, mat } = shared;
 
-  // ── Buildings: 2-4 per side, placed beyond the grass strip ──
-  for (const side of [-1, 1] as const) {
-    const count = 2 + Math.floor(rng() * 3); // 2..4
-    for (let i = 0; i < count; i++) {
+  if (hasMainHighway) {
+    // Buildings: 2-4 per side, 25-55m away from the highway centerline.
+    for (const side of [-1, 1] as const) {
+      const count = 2 + Math.floor(rng() * 3);
+      for (let i = 0; i < count; i++) {
+        const b = pickBuilding(rng, shared);
+        const bx = side * (25 + rng() * 30);
+        const bz = -CHUNK_LENGTH / 2 + rng() * CHUNK_LENGTH;
+        const building = new THREE.Mesh(b.g, b.m);
+        building.position.set(bx, b.hHalf, bz);
+        building.rotation.y = rng() * Math.PI * 2;
+        building.castShadow = true;
+        building.receiveShadow = true;
+        g.add(building);
+      }
+    }
+  } else {
+    const blockBuildings = 2 + Math.floor(rng() * 3);
+    for (let i = 0; i < blockBuildings; i++) {
       const b = pickBuilding(rng, shared);
-      const bx = side * (25 + rng() * 30); // 25-55 away from centre
-      const bz = -CHUNK_LENGTH / 2 + rng() * CHUNK_LENGTH;
+      const bx = -CHUNK_LENGTH / 2 + 12 + rng() * (CHUNK_LENGTH - 24);
+      const bz = -CHUNK_LENGTH / 2 + 12 + rng() * (CHUNK_LENGTH - 24);
       const building = new THREE.Mesh(b.g, b.m);
       building.position.set(bx, b.hHalf, bz);
-      // Slight per-instance variety: a tiny Y rotation
       building.rotation.y = rng() * Math.PI * 2;
       building.castShadow = true;
       building.receiveShadow = true;
@@ -573,10 +937,10 @@ function addRoadsideDecorations(g: THREE.Group, shared: Shared, idx: number) {
   }
 
   // ── Distant hill on one side every ~6 chunks ──
-  if (Math.abs(idx) % 6 === 0) {
+  if (Math.abs(cx * 17 + cz * 31) % 6 === 0) {
     const side = rng() < 0.5 ? -1 : 1;
     const hill = new THREE.Mesh(geo.hill, mat.hillMat);
-    hill.position.set(side * 95, 11, (rng() - 0.5) * CHUNK_LENGTH);
+    hill.position.set(side * (70 + rng() * 35), 11, (rng() - 0.5) * CHUNK_LENGTH);
     hill.castShadow = true;
     hill.receiveShadow = true;
     g.add(hill);
@@ -591,7 +955,7 @@ function addRoadsideDecorations(g: THREE.Group, shared: Shared, idx: number) {
 
 const CROSS_STREET_PERIOD = 6; // every Nth chunk has a cross street
 
-function addCrossStreet(g: THREE.Group, shared: Shared) {
+function addCrossStreet(g: THREE.Group, shared: Shared, seed: number) {
   const { geo, mat } = shared;
 
   // Cross street pavement
@@ -617,6 +981,278 @@ function addCrossStreet(g: THREE.Group, shared: Shared) {
     curb.position.set(0, 0.09, zEdge);
     g.add(curb);
   }
+
+  const rng = mulberry32(seed);
+  const lanes = [
+    { z: -2.1, yaw: Math.PI / 2, direction: 1 as const },
+    { z: 2.1, yaw: -Math.PI / 2, direction: -1 as const },
+  ];
+  const carMats = [mat.trafficBlue, mat.trafficRed, mat.trafficSilver];
+  for (let i = 0; i < 4; i++) {
+    const lane = lanes[Math.floor(rng() * lanes.length)];
+    addTrafficCar(
+      g,
+      shared,
+      -45 + i * 30 + rng() * 10,
+      0.1,
+      lane.z + (rng() - 0.5) * 0.3,
+      lane.yaw,
+      carMats[Math.floor(rng() * carMats.length)],
+      {
+        axis: 'x',
+        direction: lane.direction,
+        min: -55,
+        max: 55,
+        speed: 7 + rng() * 8,
+      },
+    );
+  }
+}
+
+function verticalRouteX(route: number, z: number) {
+  const base = route * 320 + Math.sin(route * 2.17) * 55;
+  return base + Math.sin(z * 0.006 + route * 1.3) * 42 + Math.sin(z * 0.017 + route) * 10;
+}
+
+function horizontalRouteZ(route: number, x: number) {
+  const base = route * 360 + Math.cos(route * 1.73) * 60;
+  return base + Math.sin(x * 0.0055 + route * 1.9) * 45 + Math.cos(x * 0.015 + route) * 11;
+}
+
+function addOrganicGroundNetwork(g: THREE.Group, shared: Shared, cx: number, cz: number) {
+  const centerX = cx * CHUNK_LENGTH;
+  const centerZ = cz * CHUNK_LENGTH;
+  const minX = centerX - CHUNK_LENGTH / 2;
+  const maxX = centerX + CHUNK_LENGTH / 2;
+  const minZ = centerZ - CHUNK_LENGTH / 2;
+  const maxZ = centerZ + CHUNK_LENGTH / 2;
+  const step = 24;
+
+  const routeMinX = Math.floor((minX - 110) / 320) - 1;
+  const routeMaxX = Math.ceil((maxX + 110) / 320) + 1;
+  for (let route = routeMinX; route <= routeMaxX; route++) {
+    if (route === 0) continue;
+    const sampleStart = Math.floor((minZ - step) / step) * step;
+    for (let z = sampleStart; z <= maxZ + step; z += step) {
+      const p1 = { x: verticalRouteX(route, z), z };
+      const p2 = { x: verticalRouteX(route, z + step), z: z + step };
+      const mid = { x: (p1.x + p2.x) / 2, z: z + step / 2 };
+      if (!isMidpointInChunk(mid, cx, cz)) continue;
+      addRoadSegment(g, shared, toLocal(p1, cx, cz), toLocal(p2, cx, cz), {
+        width: 17,
+        divided: true,
+        guardrails: true,
+        trafficSeed: hash2(Math.round(mid.x), Math.round(mid.z), 21),
+        trafficDensity: 0.45,
+      });
+    }
+  }
+
+  const routeMinZ = Math.floor((minZ - 120) / 360) - 1;
+  const routeMaxZ = Math.ceil((maxZ + 120) / 360) + 1;
+  for (let route = routeMinZ; route <= routeMaxZ; route++) {
+    const sampleStart = Math.floor((minX - step) / step) * step;
+    for (let x = sampleStart; x <= maxX + step; x += step) {
+      const p1 = { x, z: horizontalRouteZ(route, x) };
+      const p2 = { x: x + step, z: horizontalRouteZ(route, x + step) };
+      const mid = { x: x + step / 2, z: (p1.z + p2.z) / 2 };
+      if (!isMidpointInChunk(mid, cx, cz)) continue;
+      addRoadSegment(g, shared, toLocal(p1, cx, cz), toLocal(p2, cx, cz), {
+        width: 15,
+        divided: true,
+        guardrails: true,
+        trafficSeed: hash2(Math.round(mid.x), Math.round(mid.z), 22),
+        trafficDensity: 0.35,
+      });
+    }
+  }
+}
+
+function ringAnchor(cellX: number, cellZ: number) {
+  return driveRingAnchor(cellX, cellZ);
+}
+
+function addRingRoads(g: THREE.Group, shared: Shared, cx: number, cz: number) {
+  const centerX = cx * CHUNK_LENGTH;
+  const centerZ = cz * CHUNK_LENGTH;
+  const minX = centerX - CHUNK_LENGTH / 2;
+  const maxX = centerX + CHUNK_LENGTH / 2;
+  const minZ = centerZ - CHUNK_LENGTH / 2;
+  const maxZ = centerZ + CHUNK_LENGTH / 2;
+  const cellMinX = Math.floor((minX - 260) / 680);
+  const cellMaxX = Math.ceil((maxX + 260) / 680);
+  const cellMinZ = Math.floor((minZ - 260) / 680);
+  const cellMaxZ = Math.ceil((maxZ + 260) / 680);
+
+  for (let ax = cellMinX; ax <= cellMaxX; ax++) {
+    for (let az = cellMinZ; az <= cellMaxZ; az++) {
+      const anchor = ringAnchor(ax, az);
+      const segments = 36;
+      for (let i = 0; i < segments; i++) {
+        const a1 = (i / segments) * Math.PI * 2;
+        const a2 = ((i + 1) / segments) * Math.PI * 2;
+        const p1 = {
+          x: anchor.x + Math.cos(a1) * anchor.radius,
+          z: anchor.z + Math.sin(a1) * anchor.radius,
+        };
+        const p2 = {
+          x: anchor.x + Math.cos(a2) * anchor.radius,
+          z: anchor.z + Math.sin(a2) * anchor.radius,
+        };
+        const mid = { x: (p1.x + p2.x) / 2, z: (p1.z + p2.z) / 2 };
+        if (!isMidpointInChunk(mid, cx, cz)) continue;
+        addRoadSegment(g, shared, toLocal(p1, cx, cz), toLocal(p2, cx, cz), {
+          width: anchor.elevated ? 18 : 15,
+          y: anchor.elevated ? ELEVATED_Y : 0.018,
+          elevated: anchor.elevated,
+          divided: true,
+          guardrails: anchor.elevated,
+          curbs: !anchor.elevated,
+          trafficSeed: hash2(Math.round(mid.x), Math.round(mid.z), anchor.elevated ? 74 : 73),
+          trafficDensity: anchor.elevated ? 0.8 : 0.35,
+        });
+      }
+    }
+  }
+}
+
+function elevatedRouteX(route: number, z: number) {
+  return driveElevatedRouteX(route, z);
+}
+
+function elevatedRouteZ(route: number, x: number) {
+  return driveElevatedRouteZ(route, x);
+}
+
+function addElevatedNetwork(g: THREE.Group, shared: Shared, cx: number, cz: number) {
+  const centerX = cx * CHUNK_LENGTH;
+  const centerZ = cz * CHUNK_LENGTH;
+  const minX = centerX - CHUNK_LENGTH / 2;
+  const maxX = centerX + CHUNK_LENGTH / 2;
+  const minZ = centerZ - CHUNK_LENGTH / 2;
+  const maxZ = centerZ + CHUNK_LENGTH / 2;
+  const step = 32;
+
+  const routeMinX = Math.floor((minX - 140) / 520) - 1;
+  const routeMaxX = Math.ceil((maxX + 140) / 520) + 1;
+  for (let route = routeMinX; route <= routeMaxX; route++) {
+    const sampleStart = Math.floor((minZ - step) / step) * step;
+    for (let z = sampleStart; z <= maxZ + step; z += step) {
+      const p1 = { x: elevatedRouteX(route, z), z };
+      const p2 = { x: elevatedRouteX(route, z + step), z: z + step };
+      const mid = { x: (p1.x + p2.x) / 2, z: z + step / 2 };
+      if (!isMidpointInChunk(mid, cx, cz)) continue;
+      addRoadSegment(g, shared, toLocal(p1, cx, cz), toLocal(p2, cx, cz), {
+        width: 18,
+        y: ELEVATED_Y,
+        elevated: true,
+        divided: true,
+        guardrails: true,
+        trafficSeed: hash2(Math.round(mid.x), Math.round(mid.z), 31),
+        trafficDensity: 0.9,
+      });
+    }
+  }
+
+  const routeMinZ = Math.floor((minZ - 160) / 620) - 1;
+  const routeMaxZ = Math.ceil((maxZ + 160) / 620) + 1;
+  for (let route = routeMinZ; route <= routeMaxZ; route++) {
+    const sampleStart = Math.floor((minX - step) / step) * step;
+    for (let x = sampleStart; x <= maxX + step; x += step) {
+      const p1 = { x, z: elevatedRouteZ(route, x) };
+      const p2 = { x: x + step, z: elevatedRouteZ(route, x + step) };
+      const mid = { x: x + step / 2, z: (p1.z + p2.z) / 2 };
+      if (!isMidpointInChunk(mid, cx, cz)) continue;
+      addRoadSegment(g, shared, toLocal(p1, cx, cz), toLocal(p2, cx, cz), {
+        width: 18,
+        y: ELEVATED_Y,
+        elevated: true,
+        divided: true,
+        guardrails: true,
+        trafficSeed: hash2(Math.round(mid.x), Math.round(mid.z), 32),
+        trafficDensity: 0.85,
+      });
+    }
+  }
+}
+
+function addAccessRamp(g: THREE.Group, shared: Shared, cx: number, cz: number, ramp: DriveAccessRamp) {
+  const { geo, mat } = shared;
+  const slope = Math.atan2(ELEVATED_Y, DRIVE_ACCESS_RAMP_LENGTH);
+  const rampGroup = new THREE.Group();
+  const local = toLocal({ x: ramp.centerX, z: ramp.centerZ }, cx, cz);
+  rampGroup.position.set(local.x, 0, local.z);
+  rampGroup.rotation.y = ramp.axis === 'x' ? Math.PI / 2 : 0;
+  g.add(rampGroup);
+
+  const asphalt = new THREE.Mesh(geo.unitPlane, mat.asphalt);
+  asphalt.rotation.x = ramp.up ? -Math.PI / 2 - slope : -Math.PI / 2 + slope;
+  asphalt.position.y = ELEVATED_Y / 2;
+  asphalt.scale.set(DRIVE_ACCESS_RAMP_WIDTH, DRIVE_ACCESS_RAMP_LENGTH, 1);
+  asphalt.receiveShadow = true;
+  rampGroup.add(asphalt);
+
+  const centerLine = new THREE.Mesh(geo.unitPlane, mat.yellow);
+  centerLine.rotation.x = asphalt.rotation.x;
+  centerLine.position.y = ELEVATED_Y / 2 + 0.04;
+  centerLine.scale.set(0.18, DRIVE_ACCESS_RAMP_LENGTH * 0.88, 1);
+  rampGroup.add(centerLine);
+
+  for (const sx of [-1, 1]) {
+    const rail = new THREE.Mesh(geo.rampRail, mat.steel);
+    rail.rotation.x = ramp.up ? -slope : slope;
+    rail.position.set(sx * (DRIVE_ACCESS_RAMP_WIDTH / 2 + 0.2), ELEVATED_Y / 2 + 0.5, 0);
+    rail.castShadow = true;
+    rampGroup.add(rail);
+  }
+
+  const rng = mulberry32(ramp.seed);
+  const carMat = rng() < 0.5 ? mat.trafficBlue : mat.trafficRed;
+  const yFrom = ramp.up ? 0.1 : ELEVATED_Y + 0.1;
+  const yTo = ramp.up ? ELEVATED_Y + 0.1 : 0.1;
+  addTrafficCar(
+    rampGroup,
+    shared,
+    (rng() - 0.5) * 1.5,
+    ramp.up ? 2.0 : ELEVATED_Y - 1.2,
+    (rng() - 0.5) * DRIVE_ACCESS_RAMP_LENGTH * 0.55,
+    0,
+    carMat,
+    {
+      axis: 'z',
+      direction: 1,
+      min: -DRIVE_ACCESS_RAMP_LENGTH / 2 + 5,
+      max: DRIVE_ACCESS_RAMP_LENGTH / 2 - 5,
+      speed: 7 + rng() * 5,
+      yFrom,
+      yTo,
+    },
+  );
+
+  addTrafficCar(
+    rampGroup,
+    shared,
+    (rng() - 0.5) * 1.5,
+    ramp.up ? ELEVATED_Y - 1.2 : 2.0,
+    (rng() - 0.5) * DRIVE_ACCESS_RAMP_LENGTH * 0.55,
+    Math.PI,
+    mat.trafficSilver,
+    {
+      axis: 'z',
+      direction: -1,
+      min: -DRIVE_ACCESS_RAMP_LENGTH / 2 + 5,
+      max: DRIVE_ACCESS_RAMP_LENGTH / 2 - 5,
+      speed: 6 + rng() * 5,
+      yFrom: yTo,
+      yTo: yFrom,
+    },
+  );
+}
+
+function addAccessRamps(g: THREE.Group, shared: Shared, cx: number, cz: number) {
+  for (const ramp of getDriveAccessRampsForChunk(cx, cz)) {
+    addAccessRamp(g, shared, cx, cz, ramp);
+  }
 }
 
 function addSign(g: THREE.Group, shared: Shared, x: number, z: number) {
@@ -637,24 +1273,36 @@ function addSign(g: THREE.Group, shared: Shared, x: number, z: number) {
 function buildElevatedHighway(g: THREE.Group, shared: Shared, idx: number, skipPillars: boolean) {
   const { geo, mat } = shared;
 
+  addScaledBox(
+    g,
+    shared,
+    mat.concrete,
+    ELEVATED_MAIN_X,
+    ELEVATED_Y - 0.22,
+    0,
+    ELEVATED_WIDTH + 1.2,
+    0.42,
+    CHUNK_LENGTH,
+  );
+
   // ── Deck surface ──
   const deck = new THREE.Mesh(geo.eRoad, mat.asphalt);
   deck.rotation.x = -Math.PI / 2;
-  deck.position.y = ELEVATED_Y;
+  deck.position.set(ELEVATED_MAIN_X, ELEVATED_Y, 0);
   deck.receiveShadow = true;
   g.add(deck);
 
   // ── Median (slim concrete strip) ──
   const med = new THREE.Mesh(geo.eMedian, mat.concrete);
   med.rotation.x = -Math.PI / 2;
-  med.position.y = ELEVATED_Y + 0.01;
+  med.position.set(ELEVATED_MAIN_X, ELEVATED_Y + 0.01, 0);
   g.add(med);
 
   // Yellow median-edge lines
   for (const sx of [-1, 1]) {
     const yl = new THREE.Mesh(geo.eEdgeLine, mat.yellow);
     yl.rotation.x = -Math.PI / 2;
-    yl.position.set(sx * (E_HALF_MEDIAN + 0.05), ELEVATED_Y + 0.02, 0);
+    yl.position.set(ELEVATED_MAIN_X + sx * (E_HALF_MEDIAN + 0.05), ELEVATED_Y + 0.02, 0);
     g.add(yl);
   }
 
@@ -665,7 +1313,7 @@ function buildElevatedHighway(g: THREE.Group, shared: Shared, idx: number, skipP
     for (const sx of [-1, 1]) {
       const dash = new THREE.Mesh(geo.eDash, mat.white);
       dash.rotation.x = -Math.PI / 2;
-      dash.position.set(sx * (E_HALF_MEDIAN + E_LANE_WIDTH), ELEVATED_Y + 0.02, zOff);
+      dash.position.set(ELEVATED_MAIN_X + sx * (E_HALF_MEDIAN + E_LANE_WIDTH), ELEVATED_Y + 0.02, zOff);
       g.add(dash);
     }
   }
@@ -674,14 +1322,14 @@ function buildElevatedHighway(g: THREE.Group, shared: Shared, idx: number, skipP
   for (const sx of [-1, 1]) {
     const el = new THREE.Mesh(geo.eEdgeLine, mat.white);
     el.rotation.x = -Math.PI / 2;
-    el.position.set(sx * E_OUTER_EDGE, ELEVATED_Y + 0.02, 0);
+    el.position.set(ELEVATED_MAIN_X + sx * E_OUTER_EDGE, ELEVATED_Y + 0.02, 0);
     g.add(el);
   }
 
   // ── Side guardrails (tall, modern look) ──
   for (const sx of [-1, 1]) {
     const rail = new THREE.Mesh(geo.eRail, mat.steel);
-    rail.position.set(sx * (E_HALF_WIDTH + 0.1), ELEVATED_Y + 0.5, 0);
+    rail.position.set(ELEVATED_MAIN_X + sx * (E_HALF_WIDTH + 0.1), ELEVATED_Y + 0.5, 0);
     rail.castShadow = true;
     g.add(rail);
   }
@@ -695,13 +1343,13 @@ function buildElevatedHighway(g: THREE.Group, shared: Shared, idx: number, skipP
       const zOff = -CHUNK_LENGTH / 2 + 10 + s * 20;
       for (const sx of [-1, 1]) {
         const pillar = new THREE.Mesh(geo.ePillar, mat.concrete);
-        pillar.position.set(sx * 13.5, ELEVATED_Y / 2, zOff);
+        pillar.position.set(ELEVATED_MAIN_X + sx * (E_HALF_WIDTH - 2), ELEVATED_Y / 2, zOff);
         pillar.castShadow = true;
         g.add(pillar);
       }
       // Wide cross-beam at the top of the pillars, connecting them under the deck
       const cap = new THREE.Mesh(geo.ePillarCap, mat.concrete);
-      cap.position.set(0, ELEVATED_Y - 0.6, zOff);
+      cap.position.set(ELEVATED_MAIN_X, ELEVATED_Y - 0.6, zOff);
       cap.castShadow = true;
       g.add(cap);
     }
@@ -711,7 +1359,7 @@ function buildElevatedHighway(g: THREE.Group, shared: Shared, idx: number, skipP
   for (let s = 0; s < 8; s++) {
     const zOff = -CHUNK_LENGTH / 2 + 5 + s * 10;
     const beam = new THREE.Mesh(geo.eUnderBeam, mat.concrete);
-    beam.position.set(0, ELEVATED_Y - 0.25, zOff);
+    beam.position.set(ELEVATED_MAIN_X, ELEVATED_Y - 0.25, zOff);
     g.add(beam);
   }
 
@@ -719,13 +1367,37 @@ function buildElevatedHighway(g: THREE.Group, shared: Shared, idx: number, skipP
   if (Math.abs(idx) % 2 === 1) {
     for (const sx of [-1, 1]) {
       const pole = new THREE.Mesh(geo.pole, mat.pole);
-      pole.position.set(sx * (E_HALF_WIDTH + 0.5), ELEVATED_Y + 3.5, 0);
+      pole.position.set(ELEVATED_MAIN_X + sx * (E_HALF_WIDTH + 0.5), ELEVATED_Y + 3.5, 0);
       pole.castShadow = true;
       g.add(pole);
       const head = new THREE.Mesh(geo.head, mat.light);
-      head.position.set(sx * (E_HALF_WIDTH - 0.5), ELEVATED_Y + 6.5, 0);
+      head.position.set(ELEVATED_MAIN_X + sx * (E_HALF_WIDTH - 0.5), ELEVATED_Y + 6.5, 0);
       g.add(head);
     }
+  }
+
+  const rng = mulberry32(Math.abs(idx) * 9413 + 7001);
+  const carMats = [mat.trafficBlue, mat.trafficRed, mat.trafficSilver];
+  for (let i = 0; i < 4; i++) {
+    const lane = rng() < 0.5 ? E_LANE_INNER_R : E_LANE_OUTER_R;
+    const side = rng() < 0.5 ? -1 : 1;
+    const direction = side > 0 ? 1 : -1;
+    addTrafficCar(
+      g,
+      shared,
+      ELEVATED_MAIN_X + side * lane,
+      ELEVATED_Y + 0.1,
+      -CHUNK_LENGTH / 2 + 12 + i * 22 + rng() * 8,
+      side > 0 ? 0 : Math.PI,
+      carMats[Math.floor(rng() * carMats.length)],
+      {
+        axis: 'z',
+        direction,
+        min: -CHUNK_LENGTH / 2 + 6,
+        max: CHUNK_LENGTH / 2 - 6,
+        speed: 12 + rng() * 17,
+      },
+    );
   }
 }
 
@@ -740,7 +1412,7 @@ function buildElevatedRampUp(g: THREE.Group, shared: Shared) {
   const slope = Math.atan2(ELEVATED_Y, 80); // rise/run
 
   // Position the ramp on the right side, between ground highway shoulder and elevated edge
-  const rampX = X_SHOULDER_END + 4;
+  const rampX = DRIVE_ELEVATED_RAMP_X;
   const ramp = new THREE.Mesh(geo.rampSurface, mat.asphalt);
   ramp.rotation.x = -Math.PI / 2 - slope;
   ramp.position.set(rampX, ELEVATED_Y / 2, 0);
@@ -757,6 +1429,15 @@ function buildElevatedRampUp(g: THREE.Group, shared: Shared) {
 
   // Sign at the bottom of the ramp indicating "↑ 上高架"
   addSign(g, shared, rampX, -CHUNK_LENGTH / 2 + 5);
+  addTrafficCar(g, shared, rampX, ELEVATED_Y / 2 + 0.1, -18, 0, mat.trafficSilver, {
+    axis: 'z',
+    direction: 1,
+    min: -42,
+    max: 42,
+    speed: 8,
+    yFrom: 0.1,
+    yTo: ELEVATED_Y + 0.1,
+  });
 
   // Yellow arrow markings on the ramp (small painted arrow pattern)
   for (let i = 0; i < 5; i++) {
@@ -785,7 +1466,7 @@ function buildElevatedRampDown(g: THREE.Group, shared: Shared) {
   const { geo, mat } = shared;
   const slope = Math.atan2(ELEVATED_Y, 80);
 
-  const rampX = X_SHOULDER_END + 4;
+  const rampX = DRIVE_ELEVATED_RAMP_X;
   const ramp = new THREE.Mesh(geo.rampSurface, mat.asphalt);
   ramp.rotation.x = -Math.PI / 2 + slope; // opposite tilt
   ramp.position.set(rampX, ELEVATED_Y / 2, 0);
@@ -801,41 +1482,56 @@ function buildElevatedRampDown(g: THREE.Group, shared: Shared) {
 
   // Sign at the top of the ramp indicating "↓ 下高架"
   addSign(g, shared, rampX, -CHUNK_LENGTH / 2 + 5);
+  addTrafficCar(g, shared, rampX, ELEVATED_Y / 2 + 0.1, 18, 0, mat.trafficBlue, {
+    axis: 'z',
+    direction: 1,
+    min: -42,
+    max: 42,
+    speed: 8,
+    yFrom: ELEVATED_Y + 0.1,
+    yTo: 0.1,
+  });
 }
 
-function buildChunk(idx: number, shared: Shared): THREE.Group {
+function buildChunk(cx: number, cz: number, shared: Shared): THREE.Group {
   const g = new THREE.Group();
-  g.name = `hwy_${idx}`;
-  g.position.set(0, 0, idx * CHUNK_LENGTH);
+  g.name = `world_${cx}_${cz}`;
+  g.position.set(cx * CHUNK_LENGTH, 0, cz * CHUNK_LENGTH);
 
-  // Base ground highway is always present
-  buildStraightBase(g, shared);
-  if (Math.abs(idx) % 2 === 0) buildStreetlights(g, shared);
+  buildTerrainBase(g, shared);
 
-  const type = getChunkType(idx);
+  const hasMainHighway = cx === 0;
+  const type: ChunkType = getChunkType(cz);
 
-  // Elevated highway is always present (with pillars/support running parallel above).
-  // Skip pillars on TOLL chunks (would clip into the gantry pillars) and on OVERPASS
-  // chunks (would clip into the overpass support pillars).
-  const skipElevatedPillars = type === 'TOLL' || type === 'OVERPASS';
-  buildElevatedHighway(g, shared, idx, skipElevatedPillars);
+  if (hasMainHighway) {
+    // Base ground highway is always present in the central corridor.
+    buildStraightBase(g, shared);
+    if (Math.abs(cz) % 2 === 0) buildStreetlights(g, shared);
+    addMainHighwayTraffic(g, shared, cz);
 
-  if (type === 'RAMP_ON')        buildRampOn(g, shared);
-  if (type === 'RAMP_OFF')       buildRampOff(g, shared);
-  if (type === 'TOLL')           buildTollPlaza(g, shared);
-  if (type === 'OVERPASS')       buildOverpass(g, shared);
-  if (type === 'ELEVATED_UP')    buildElevatedRampUp(g, shared);
-  if (type === 'ELEVATED_DOWN')  buildElevatedRampDown(g, shared);
+    const skipElevatedPillars = type === 'TOLL' || type === 'OVERPASS';
+    buildElevatedHighway(g, shared, cz, skipElevatedPillars);
 
-  // Always add roadside decorations (buildings, trees, hills) — deterministic per chunk
-  addRoadsideDecorations(g, shared, idx);
+    if (type === 'RAMP_ON')        buildRampOn(g, shared);
+    if (type === 'RAMP_OFF')       buildRampOff(g, shared);
+    if (type === 'TOLL')           buildTollPlaza(g, shared);
+    if (type === 'OVERPASS')       buildOverpass(g, shared);
+    if (type === 'ELEVATED_UP')    buildElevatedRampUp(g, shared);
+    if (type === 'ELEVATED_DOWN')  buildElevatedRampDown(g, shared);
 
-  // Occasional cross street: skip on chunks that already have a special structure
-  // to avoid visual conflicts with toll plaza / overpass / ramp roads
-  const isSpecial = type !== 'STRAIGHT';
-  if (!isSpecial && Math.abs(idx) % CROSS_STREET_PERIOD === 3) {
-    addCrossStreet(g, shared);
+    const isSpecial = type !== 'STRAIGHT';
+    if (!isSpecial && Math.abs(cz) % CROSS_STREET_PERIOD === 3) {
+      addCrossStreet(g, shared, hash2(cx, cz, 91));
+    }
   }
+
+  addOrganicGroundNetwork(g, shared, cx, cz);
+  addRingRoads(g, shared, cx, cz);
+  addElevatedNetwork(g, shared, cx, cz);
+  addAccessRamps(g, shared, cx, cz);
+
+  // Always add deterministic city/roadside decorations per chunk.
+  addRoadsideDecorations(g, shared, cx, cz, hasMainHighway);
 
   return g;
 }
@@ -846,39 +1542,58 @@ function buildChunk(idx: number, shared: Shared): THREE.Group {
 
 export function HighwayNetworkSystem() {
   const containerRef = useRef<THREE.Group>(null);
-  const chunkMapRef = useRef<Map<number, THREE.Group>>(new Map());
-  const playerChunkRef = useRef<number>(Number.MIN_SAFE_INTEGER);
+  const chunkMapRef = useRef<Map<string, THREE.Group>>(new Map());
+  const animatedTrafficRef = useRef<Set<THREE.Group>>(new Set());
+  const playerChunkRef = useRef<ChunkCoord>({ cx: Number.MIN_SAFE_INTEGER, cz: Number.MIN_SAFE_INTEGER });
 
   // Shared resources created once
   const shared = useMemo(() => makeShared(), []);
 
-  // Stream chunks every frame based on player Z
-  useFrame(() => {
-    const { playerPosition } = useWorldStore.getState();
-    const targetChunk = Math.floor(playerPosition.z / CHUNK_LENGTH);
+  // Stream square chunks every frame based on player X/Z so exploration works off-highway.
+  useFrame((_, delta) => {
+    const dt = Math.min(delta, 0.05);
+    animatedTrafficRef.current.forEach((car) => updateTrafficCar(car, dt));
 
-    if (targetChunk === playerChunkRef.current) return;
+    const { playerPosition } = useWorldStore.getState();
+    const targetChunk = {
+      cx: Math.round(playerPosition.x / CHUNK_LENGTH),
+      cz: Math.round(playerPosition.z / CHUNK_LENGTH),
+    };
+
+    if (targetChunk.cx === playerChunkRef.current.cx && targetChunk.cz === playerChunkRef.current.cz) return;
     playerChunkRef.current = targetChunk;
 
-    const loadStart = targetChunk - LOAD_BEHIND;
-    const loadEnd = targetChunk + LOAD_AHEAD;
+    const required = new Set<string>();
+    for (let dx = -LOAD_RADIUS; dx <= LOAD_RADIUS; dx++) {
+      for (let dz = -LOAD_RADIUS; dz <= LOAD_RADIUS; dz++) {
+        const cx = targetChunk.cx + dx;
+        const cz = targetChunk.cz + dz;
+        required.add(chunkKey(cx, cz));
+      }
+    }
 
     // Spawn missing chunks
-    for (let i = loadStart; i <= loadEnd; i++) {
-      if (!chunkMapRef.current.has(i)) {
-        const chunk = buildChunk(i, shared);
-        chunkMapRef.current.set(i, chunk);
-        containerRef.current?.add(chunk);
-      }
+    for (const key of required) {
+      if (chunkMapRef.current.has(key)) continue;
+      const [cx, cz] = key.split('_').map(Number);
+      const chunk = buildChunk(cx, cz, shared);
+      chunkMapRef.current.set(key, chunk);
+      collectTrafficCars(chunk, animatedTrafficRef.current);
+      containerRef.current?.add(chunk);
     }
 
     // Remove distant chunks (no geometry disposal — geometries are shared
     // singletons, materials are shared. Inline geometries become garbage and
     // are collected when no mesh references them).
-    const toRemove: number[] = [];
-    chunkMapRef.current.forEach((chunk, idx) => {
-      if (idx < loadStart - 2 || idx > loadEnd + 2) {
+    const toRemove: string[] = [];
+    chunkMapRef.current.forEach((chunk, key) => {
+      const [cx, cz] = key.split('_').map(Number);
+      if (
+        Math.abs(cx - targetChunk.cx) > UNLOAD_RADIUS ||
+        Math.abs(cz - targetChunk.cz) > UNLOAD_RADIUS
+      ) {
         containerRef.current?.remove(chunk);
+        removeTrafficCars(chunk, animatedTrafficRef.current);
         // Dispose any per-chunk inline geometries (those NOT in shared)
         chunk.traverse(child => {
           const m = child as THREE.Mesh;
@@ -889,16 +1604,17 @@ export function HighwayNetworkSystem() {
           const isShared = Object.values(shared.geo).includes(geo as never);
           if (!isShared) geo.dispose();
         });
-        toRemove.push(idx);
+        toRemove.push(key);
       }
     });
-    toRemove.forEach(idx => chunkMapRef.current.delete(idx));
+    toRemove.forEach(key => chunkMapRef.current.delete(key));
   });
 
   // Dispose shared resources on unmount
   useEffect(() => () => {
     Object.values(shared.geo).forEach(g => g.dispose());
     Object.values(shared.mat).forEach(m => m.dispose());
+    animatedTrafficRef.current.clear();
     chunkMapRef.current.clear();
   }, [shared]);
 

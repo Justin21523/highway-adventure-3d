@@ -16,8 +16,13 @@ import { useWorldStore } from '@/stores/worldStore';
  * PlayerVehicle Component
  * ───────────────────────────────────────────── */
 
-export function PlayerVehicle() {
-  const groupRef = useRef<THREE.Group>(null);
+interface PlayerVehicleProps {
+  vehicleRef?: React.RefObject<THREE.Group>;
+}
+
+export function PlayerVehicle({ vehicleRef }: PlayerVehicleProps = {}) {
+  const internalRef = useRef<THREE.Group>(null);
+  const groupRef = vehicleRef ?? internalRef;
   const wheelRefs = useRef<THREE.Mesh[]>([]);
   const headlightRefs = useRef<THREE.Mesh[]>([]);
 
@@ -47,9 +52,11 @@ export function PlayerVehicle() {
     // Update position
     groupRef.current.position.set(playerPos.x, playerPos.y + 0.5, playerPos.z);
 
-    // Update rotation based on steer angle
-    const steerRad = (vehicle.steerAngle / 90) * 0.3;
-    groupRef.current.rotation.y = steerRad;
+    // Rotate to face the accumulated heading direction
+    groupRef.current.rotation.y = vehicle.headingAngle ?? 0;
+    // Keep car body level (no Z-roll) so the chase camera doesn't tilt the world view
+    groupRef.current.rotation.z = 0;
+    groupRef.current.rotation.x = 0;
 
     // Visual boost effect
     if (vehicle.isBoosting) {

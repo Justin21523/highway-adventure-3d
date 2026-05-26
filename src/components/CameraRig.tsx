@@ -1,72 +1,50 @@
-/**
- * CameraRig — Third-person camera that follows the player vehicle.
- *
- * Implements a smooth follow camera with:
- * - Distance offset from player
- * - Height offset above player
- * - Smooth interpolation (lerp) for camera movement
- * - FOV changes based on speed (boost effect)
- */
-
+// src/components/player/CameraRig.tsx
 import { useRef } from 'react';
-import { useFrame } from '@react-three/fiber';
+import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
-import { useGameStore } from '@/stores/gameStore';
-import { useWorldStore } from '@/stores/worldStore';
+import { useGameStore } from '../stores/gameStore';
 
-/* ─────────────────────────────────────────────
- * CameraRig Component
- * ───────────────────────────────────────────── */
+export function CameraRig({ vehicleRef }: { vehicleRef: React.RefObject<THREE.Group> }) {
+  const { camera } = useThree();
+  const currentPos = useRef(new THREE.Vector3(0, 4, -12));
+  const currentLookAt = useRef(new THREE.Vector3(0, 1, 8));
+  const tempVec = useRef(new THREE.Vector3());
 
-export function CameraRig() {
-  const cameraRef = useRef<THREE.PerspectiveCamera>(null);
-  const targetPos = useRef(new THREE.Vector3());
-  const currentPos = useRef(new THREE.Vector3());
+  useFrame((_, delta) => {
+    if (!vehicleRef.current) return;
+    const mesh = vehicleRef.current;
+    const speed = useGameStore.getState().vehicle.speed;
 
-  // Camera settings
-  const CAMERA_DISTANCE = 12;
-  const CAMERA_HEIGHT = 6;
-  const CAMERA_SMOOTH_SPEED = 0.08;
-  const BOOST_FOV = 80;
-  const NORMAL_FOV = 65;
+    // 1. Calculate ideal chase position & target
+    const dist = 7 + Math.min(speed / 180, 1) * 6;
+    const height = 2.5 + Math.min(speed / 150, 1) * 2;
+    const lookDist = 10 + Math.min(speed / 200, 1) * 8;
 
-  useFrame(() => {
-    if (!cameraRef.current) return;
+    tempVec.current.set(0, height, -dist);
+    tempVec.current.applyQuaternion(mesh.quaternion).add(mesh.position);
+    const idealPos = tempVec.current.clone();
 
-    const playerPos = useWorldStore.getState().playerPosition;
-    const vehicle = useGameStore.getState().vehicle;
+    tempVec.current.set(0, 1.2, lookDist);
+    tempVec.current.applyQuaternion(mesh.quaternion).add(mesh.position);
+    const idealLook = tempVec.current.clone();
 
-    // Calculate target camera position (behind and above player)
-    const steerAngle = vehicle.steerAngle;
-    const angleOffset = (steerAngle / 90) * 0.2;
+    // 2. Frame-rate independent damping
+    const lerpFactor = 1 - Math.exp(-4.5 * delta);
+    currentPos.current.lerp(idealPos, lerpFactor);
+    currentLookAt.current.lerp(idealLook, lerpFactor * 1.3);
 
-    targetPos.current.set(
-      playerPos.x - Math.sin(angleOffset) * CAMERA_DISTANCE,
-      playerPos.y + CAMERA_HEIGHT,
-      playerPos.z + CAMERA_DISTANCE,
-    );
+    camera.position.copy(currentPos.current);
+    camera.lookAt(currentLookAt.current);
 
-    // Smooth camera movement
-    const lerpFactor = 1 - Math.pow(1 - CAMERA_SMOOTH_SPEED, 1 / 60);
-    currentPos.current.lerp(targetPos.current, lerpFactor);
+    // 3. Dynamic FOV & Roll
+    const targetFov = 60 + Math.min(speed / 160, 1) * 25;
+    const persp = camera as THREE.PerspectiveCamera;
+    persp.fov = THREE.MathUtils.lerp(persp.fov, targetFov, lerpFactor);
+    persp.updateProjectionMatrix();
 
-    // Apply position
-    cameraRef.current.position.copy(currentPos.current);
-    cameraRef.current.lookAt(playerPos.x, playerPos.y + 1, playerPos.z);
-
-    // FOV changes based on speed/boost
-    const targetFov = vehicle.isBoosting ? BOOST_FOV : NORMAL_FOV + (vehicle.speed / vehicle.maxSpeed) * 15;
-    cameraRef.current.fov += (targetFov - cameraRef.current.fov) * 0.1;
-    cameraRef.current.updateProjectionMatrix();
+    // Keep camera level — no roll, prevents horizon/road from appearing tilted
+    camera.rotation.z = THREE.MathUtils.lerp(camera.rotation.z, 0, lerpFactor);
   });
 
-  return (
-    <perspectiveCamera
-      ref={cameraRef}
-      fov={NORMAL_FOV}
-      near={0.1}
-      far={1000}
-      position={[0, CAMERA_HEIGHT, CAMERA_DISTANCE]}
-    />
-  );
+  return null;
 }

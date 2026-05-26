@@ -14,9 +14,20 @@ import { formatSpeed, formatDecimal } from '@/utils/format';
 export function GarageModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
   const vehicle = useGameStore((state) => state.vehicle);
   const profile = useGameStore((state) => state.profile);
-  const repairVehicle = useGameStore((state) => state.updateVehicleState);
+  const updateVehicleState = useGameStore((state) => state.updateVehicleState);
+  const spendCoins = useGameStore((state) => state.spendCoins);
+  const addNotification = useGameStore((state) => state.addNotification);
 
   if (!isOpen) return null;
+
+  const handleUpgrade = (upgradeName: string, cost: number, applyUpgrade: (v: typeof vehicle) => typeof vehicle) => {
+    if (!spendCoins(cost)) {
+      addNotification(`Insufficient coins for ${upgradeName}!`);
+      return;
+    }
+    updateVehicleState(applyUpgrade(vehicle));
+    addNotification(`${upgradeName} upgraded!`);
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
@@ -71,21 +82,21 @@ export function GarageModal({ isOpen, onClose }: { isOpen: boolean; onClose: () 
               description="Increase max speed by 20 km/h"
               cost={1000}
               level={profile.level}
-              onUpgrade={() => {}}
+              onUpgrade={() => handleUpgrade('Engine Tuning', 1000, (v) => ({ ...v, maxSpeed: v.maxSpeed + 20 }))}
             />
             <UpgradeCard
               name="Fuel Tank"
               description="Increase fuel capacity by 25%"
               cost={800}
               level={profile.level}
-              onUpgrade={() => {}}
+              onUpgrade={() => handleUpgrade('Fuel Tank', 800, (v) => ({ ...v, fuel: Math.min(100, v.fuel + 25) }))}
             />
             <UpgradeCard
               name="Armor Plating"
               description="Increase max health by 25"
               cost={1200}
               level={profile.level}
-              onUpgrade={() => {}}
+              onUpgrade={() => handleUpgrade('Armor Plating', 1200, (v) => ({ ...v, health: Math.min(100, v.health + 25) }))}
             />
           </div>
         </div>

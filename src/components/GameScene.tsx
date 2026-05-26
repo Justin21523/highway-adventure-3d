@@ -1,92 +1,72 @@
 /**
  * GameScene — Main 3D scene component.
  *
- * This is the root component that assembles all 3D elements:
- * - Player vehicle and camera
- * - World chunks (procedural streaming)
- * - Traffic cars (NPC vehicles)
- * - Shop buildings
- * - Pickup objects
- * - Environment lighting and effects
- *
  * Usage:
  *   <Canvas>
  *     <GameScene />
  *   </Canvas>
  */
-
-import { useRef, useEffect } from 'react';
-import { useFrame } from '@react-three/fiber';
+import { useRef } from 'react';
 import * as THREE from 'three';
 import { useGameLoop } from '@/hooks/useGameLoop';
 import { PlayerVehicle } from './PlayerVehicle';
 import { CameraRig } from './CameraRig';
-import { WorldChunks } from './WorldChunks';
-import { TrafficCars } from './TrafficCars';
 import { ShopBuildings } from './ShopBuildings';
 import { PickupObjects } from './PickupObjects';
 import { EnvironmentLights } from './EnvironmentLights';
-import { SpeedBoostPads } from './SpeedBoostPads';
 import { Obstacles } from './Obstacles';
 import { PostProcessing } from './PostProcessing';
 import { TrafficBatchSystem } from './world/TrafficBatchSystem';
-import { DecorationBatchSystem } from './world/DecorationBatchSystem';
-import { RoadMarkingBatchSystem } from './world/RoadMarkingBatchSystem';
+import { CollisionManager } from './world/CollisionManager';
+import { ChunkRenderer } from './world/ChunkRenderer';
+import { HighwayNetworkSystem } from './world/HighwayNetworkSystem';
+import { ParallaxScenery } from './world/ParallaxScenery';
 
 /* ─────────────────────────────────────────────
  * GameScene Component
  * ───────────────────────────────────────────── */
 
 export function GameScene() {
-  const sceneRef = useRef<THREE.Scene>(null);
-
-  // Initialize game loop
   useGameLoop();
 
-  // Set up scene reference for environment system
-  useEffect(() => {
-    if (sceneRef.current) {
-      // Scene is already available through R3F context
-    }
-  }, []);
+  // 共有車両 ref — PlayerVehicle と CameraRig で同じ Group を参照する
+  const vehicleRef = useRef<THREE.Group>(null);
 
   return (
     <group>
-      {/* Environment lighting and effects */}
+      {/* 環境照明 */}
       <EnvironmentLights />
 
-      {/* World chunks (procedural streaming with road network) */}
-      <WorldChunks />
-
-      {/* Road markings (batch rendered) */}
-      <RoadMarkingBatchSystem />
-
-      {/* Decorations - trees, rocks, signs (batch rendered) */}
-      <DecorationBatchSystem />
-
-      {/* Shop buildings */}
+      {/* ショップ建物 */}
       <ShopBuildings />
 
-      {/* Speed boost pads */}
-      <SpeedBoostPads />
-
-      {/* Obstacles */}
+      {/* 障害物 */}
       <Obstacles />
 
-      {/* Pickup objects (coins, boosts, items) */}
+      {/* ピックアップアイテム */}
       <PickupObjects />
 
-      {/* Traffic cars (batch rendered with InstancedMesh) */}
+      {/* トラフィック (InstancedMesh バッチ) */}
       <TrafficBatchSystem />
 
-      {/* Player vehicle */}
-      <PlayerVehicle />
+      {/* プレイヤー車両 — vehicleRef を渡す */}
+      <PlayerVehicle vehicleRef={vehicleRef} />
 
-      {/* Camera rig */}
-      <CameraRig />
+      {/* カメラリグ — 同じ vehicleRef で車両を追従 */}
+      <CameraRig vehicleRef={vehicleRef} />
 
-      {/* Post-processing effects */}
+      {/* 道路・チャンク生成 */}
+      <HighwayNetworkSystem />
+      <ChunkRenderer />
+
+      {/* 背景スクロール */}
+      <ParallaxScenery />
+
+      {/* ポストエフェクト */}
       <PostProcessing />
+
+      {/* 衝突管理 */}
+      <CollisionManager />
     </group>
   );
 }

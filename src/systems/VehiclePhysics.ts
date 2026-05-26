@@ -34,6 +34,9 @@ export class VehiclePhysics {
   /** Whether the system is initialized */
   private isInitialized = false;
 
+  /** Accumulated world-space heading angle (radians, Y-axis rotation) */
+  private headingAngle = 0;
+
   /** Track drift state */
   private driftAngle = 0;
   private driftStartTime = 0;
@@ -67,7 +70,7 @@ export class VehiclePhysics {
     const gameMode = gameStore.gameMode;
 
     // Skip physics if in shop, garage, or pause mode
-    if (gameMode === 'shop' || gameMode === 'garage' || gameMode === 'pause') return;
+    if (gameMode === 'shop' || gameMode === 'garage' || gameMode === 'paused') return;
 
     // Apply physics
     this.updateAcceleration(vehicle, delta);
@@ -280,26 +283,32 @@ export class VehiclePhysics {
   /** Update player position in world store based on vehicle state */
   private updatePlayerPosition(vehicle: typeof import('@/types/core').VehicleState, delta: number): void {
     const worldStore = useWorldStore.getState();
+    const gameStore = useGameStore.getState();
     const currentPos = worldStore.playerPosition;
 
-    // Calculate movement based on speed and steer angle
-    const speedMs = vehicle.speed / 3.6; // Convert km/h to m/s
+    const speedMs = vehicle.speed / 3.6; // km/h → m/s
     const moveDistance = speedMs * delta;
 
-    // Calculate direction from steer angle
-    const direction = -vehicle.steerAngle / PHYSICS.MAX_STEER_ANGLE;
-    const turnRate = direction * PHYSICS.TURN_RATE * (speedMs / 30);
+    // Accumulate heading from steering input.
+    // steerLeft → positive steerAngle; Three.js positive Y rotation = clockwise from above = right turn.
+    // Negate so steerLeft (positive angle) decreases heading = turns left.
+    const steerFactor = -(vehicle.steerAngle / PHYSICS.MAX_STEER_ANGLE);
+    const turnAmount = steerFactor * 2.0 * Math.min(speedMs / 20, 1) * delta;
+    this.headingAngle += turnAmount;
 
-    // Update position
-    const newX = currentPos.x + Math.sin(turnRate * delta) * moveDistance;
-    const newZ = currentPos.z - Math.cos(turnRate * delta) * moveDistance;
+    // Car front faces +Z at heading=0. Movement direction = (sin, 0, cos).
+    const newX = currentPos.x + Math.sin(this.headingAngle) * moveDistance;
+    const newZ = currentPos.z + Math.cos(this.headingAngle) * moveDistance;
 
-    // Clamp to world bounds (prevent going off the edge)
-    const clampedX = Math.max(-200, Math.min(200, newX));
+    // Clamp to world bounds
+    const clampedX = Math.max(-500, Math.min(500, newX));
 
     worldStore.setPlayerPosition({ x: clampedX, y: currentPos.y, z: newZ });
 
-    // Update current chunk
+    // Expose heading to game store so PlayerVehicle can rotate the mesh correctly
+    gameStore.updateVehicleState({ headingAngle: this.headingAngle });
+
+    // Update current chunk ID
     const chunkX = Math.floor(clampedX / 100);
     const chunkZ = Math.floor(newZ / 100);
     const chunkId = `${chunkX}_${chunkZ}`;
@@ -337,6 +346,7 @@ export class VehiclePhysics {
       steerAngle: 0,
     });
 
+    this.headingAngle = 0;
     this.driftAngle = 0;
     this.driftStartTime = 0;
     this.sessionTopSpeed = 0;

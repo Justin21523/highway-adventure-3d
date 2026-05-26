@@ -90,45 +90,6 @@ export function useGameLoop() {
       envSystem.update(delta);
     }
   });
-
-  // Add controls event listeners
-  useEffect(() => {
-    const controls = controlsRef.current;
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (controls) {
-        switch (e.code) {
-          case 'KeyW': case 'ArrowUp': controls.forward = true; break;
-          case 'KeyS': case 'ArrowDown': controls.backward = true; break;
-          case 'KeyA': case 'ArrowLeft': controls.left = true; break;
-          case 'KeyD': case 'ArrowRight': controls.right = true; break;
-          case 'Space': controls.handbrake = true; break;
-          case 'ShiftLeft': case 'ShiftRight': controls.boost = true; break;
-        }
-      }
-    };
-
-    const handleKeyUp = (e: KeyboardEvent) => {
-      if (controls) {
-        switch (e.code) {
-          case 'KeyW': case 'ArrowUp': controls.forward = false; break;
-          case 'KeyS': case 'ArrowDown': controls.backward = false; break;
-          case 'KeyA': case 'ArrowLeft': controls.left = false; break;
-          case 'KeyD': case 'ArrowRight': controls.right = false; break;
-          case 'Space': controls.handbrake = false; break;
-          case 'ShiftLeft': case 'ShiftRight': controls.boost = false; break;
-        }
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('keyup', handleKeyUp);
-
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-      window.removeEventListener('keyup', handleKeyUp);
-    };
-  }, [controlsRef]);
 }
 
 /* ─────────────────────────────────────────────

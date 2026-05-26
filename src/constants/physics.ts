@@ -107,3 +107,6 @@ export const FUEL = {
   REFUEL_RATE_PER_SECOND: 5.0,
   LOW_FUEL_THRESHOLD: 15,
 } as const;
+
+// VEHICLE_DEFAULTS の別名 — 後方互換性のため
+export const VEHICLE = VEHICLE_DEFAULTS;

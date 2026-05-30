@@ -16,6 +16,8 @@ import { GameScene } from './components/GameScene';
 import { HUD } from './components/HUD';
 import { QuestLog } from './components/QuestLog';
 import { ShopModal } from './components/ShopModal';
+import { ShopInteriorScene } from './components/ShopInteriorScene';
+import { ShopInteriorOverlay } from './components/ShopInteriorOverlay';
 import { GarageModal } from './components/GarageModal';
 import { NotificationToast } from './components/NotificationToast';
 import { InteractionOverlay } from './components/InteractionOverlay';
@@ -24,7 +26,6 @@ import { StartScreen } from './components/StartScreen';
 import { PauseMenu } from './components/PauseMenu';
 import { useGameStore } from './stores/gameStore';
 import { useShopStore } from './stores/shopStore';
-import { ShopSystem } from './systems/ShopSystem';
 import { AudioManager } from './managers/AudioManager';
 import { VFXManager } from './managers/VFXManager';
 import { SaveManager } from './managers/SaveManager';
@@ -148,6 +149,7 @@ export default function App() {
   const [isQuestOpen, setIsQuestOpen] = useState(false);
   const [isShopOpen, setIsShopOpen] = useState(false);
   const [isGarageOpen, setIsGarageOpen] = useState(false);
+  const interiorShopId = useShopStore((state) => state.interiorShopId);
 
   // WebGL detection
   useEffect(() => {
@@ -159,6 +161,12 @@ export default function App() {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         const gameStore = useGameStore.getState();
+        const shopStore = useShopStore.getState();
+        if (shopStore.interiorShopId) {
+          shopStore.exitShopInterior();
+          gameStore.setGameMode('playing');
+          return;
+        }
         if (gameStore.gameMode === 'playing') {
           gameStore.setGameMode('paused');
         } else if (gameStore.gameMode === 'paused') {
@@ -171,10 +179,20 @@ export default function App() {
       }
 
       if (e.key === 'e' || e.key === 'E') {
-        const nearShopId = useShopStore.getState().nearShopId;
-        if (nearShopId) {
-          ShopSystem.getInstance().openShop(nearShopId);
-          setIsShopOpen(true);
+        const shopStore = useShopStore.getState();
+        const nearestShopId = shopStore.nearestShopId;
+        if (nearestShopId && !shopStore.interiorShopId) {
+          shopStore.enterShopInterior(nearestShopId);
+          useGameStore.getState().setGameMode('shop');
+          setIsShopOpen(false);
+        }
+      }
+
+      if (e.key === 'x' || e.key === 'X') {
+        const shopStore = useShopStore.getState();
+        if (shopStore.interiorShopId) {
+          shopStore.exitShopInterior();
+          useGameStore.getState().setGameMode('playing');
         }
       }
     };
@@ -249,19 +267,19 @@ export default function App() {
             shadow-mapSize-width={1024}
             shadow-mapSize-height={1024}
           />
-          <Stars radius={200} depth={80} count={3000} factor={4} saturation={0} />
+          {!interiorShopId && <Stars radius={200} depth={80} count={3000} factor={4} saturation={0} />}
           <Suspense fallback={null}>
-            <GameScene />
-            <ParallaxBackground />
+            {interiorShopId ? <ShopInteriorScene /> : <GameScene />}
+            {!interiorShopId && <ParallaxBackground />}
             <VFXController />
           </Suspense>
         </Canvas>
       </WebGLErrorBoundary>
 
       {/* UI Overlay */}
-      <HUD />
+      {!interiorShopId && <HUD />}
       <NotificationToast />
-      <InteractionOverlay />
+      {interiorShopId ? <ShopInteriorOverlay /> : <InteractionOverlay />}
 
       {/* Modals */}
       <QuestLog isOpen={isQuestOpen} onClose={() => setIsQuestOpen(false)} />

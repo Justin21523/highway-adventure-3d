@@ -21,6 +21,7 @@ import { CollisionManager } from './world/CollisionManager';
 import { ChunkRenderer } from './world/ChunkRenderer';
 import { HighwayNetworkSystem } from './world/HighwayNetworkSystem';
 import { ParallaxScenery } from './world/ParallaxScenery';
+import { WorldShopSpawner } from './world/WorldShopSpawner';
 
 /* ─────────────────────────────────────────────
  * GameScene Component
@@ -38,6 +39,7 @@ export function GameScene() {
       <EnvironmentLights />
 
       {/* ショップ建物 */}
+      <WorldShopSpawner />
       <ShopBuildings />
 
       {/* 障害物 */}

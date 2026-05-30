@@ -14,9 +14,11 @@ export const PHYSICS = {
   FRICTION: 5, // m/s²
   DRIFT_SPEED_THRESHOLD: 20, // km/h
   DRIFT_DECEL: 10, // m/s²
-  MAX_STEER_ANGLE: 30, // degrees
-  STEER_SPEED: 45, // degrees/s
+  MAX_STEER_ANGLE: 22, // degrees — lowered for gentler turning
+  STEER_SPEED: 22, // degrees/s — slower to reach full steer
+  STEER_RETURN_MULTIPLIER: 1.2, // wheel returns to center moderately
   TURN_RATE: 0.5, // rad/s at 30 m/s
+  TURN_AMOUNT_SCALE: 0.9, // overall rotation rate multiplier — lower = less sensitive
 
   /* ── Fuel ── */
   FUEL_CONSUMPTION: 2, // units/s when accelerating

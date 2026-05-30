@@ -4,6 +4,8 @@ import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { useGameStore } from '../stores/gameStore';
 
+const UP = new THREE.Vector3(0, 1, 0);
+
 export function CameraRig({ vehicleRef }: { vehicleRef: React.RefObject<THREE.Group> }) {
   const { camera } = useThree();
   const currentPos = useRef(new THREE.Vector3(0, 4, -12));
@@ -33,17 +35,18 @@ export function CameraRig({ vehicleRef }: { vehicleRef: React.RefObject<THREE.Gr
     currentPos.current.lerp(idealPos, lerpFactor);
     currentLookAt.current.lerp(idealLook, lerpFactor * 1.3);
 
+    // 3. Lock the camera's up vector to world Y so lookAt produces zero roll.
+    // (Previously the camera.rotation.z was lerped to 0 AFTER lookAt, which
+    //  fought lookAt every frame and created a visible "X-axis tilt" wobble.)
+    camera.up.copy(UP);
     camera.position.copy(currentPos.current);
     camera.lookAt(currentLookAt.current);
 
-    // 3. Dynamic FOV & Roll
+    // 4. Dynamic FOV
     const targetFov = 60 + Math.min(speed / 160, 1) * 25;
     const persp = camera as THREE.PerspectiveCamera;
     persp.fov = THREE.MathUtils.lerp(persp.fov, targetFov, lerpFactor);
     persp.updateProjectionMatrix();
-
-    // Keep camera level — no roll, prevents horizon/road from appearing tilted
-    camera.rotation.z = THREE.MathUtils.lerp(camera.rotation.z, 0, lerpFactor);
   });
 
   return null;

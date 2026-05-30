@@ -38,6 +38,9 @@ export class VehiclePhysics {
   /** Accumulated world-space heading angle (radians, Y-axis rotation) */
   private headingAngle = 0;
 
+  /** Smoothed Y for player to avoid frame-to-frame Y jitter on the ground */
+  private smoothedY = 0.5;
+
   /** Track drift state */
   private driftAngle = 0;
   private driftStartTime = 0;
@@ -150,8 +153,12 @@ export class VehiclePhysics {
     // Steering only works when moving
     if (vehicle.speed < 1) return;
 
-    const steerSpeed = PHYSICS.STEER_SPEED * Math.min(vehicle.speed / 20, 1);
+    // Steering grows with speed but is dampened at high speeds to prevent oversteer.
+    const speedFactor = Math.min(vehicle.speed / 30, 1);
+    const highSpeedDamp = vehicle.speed > 90 ? 0.55 : 1.0;
+    const steerSpeed = PHYSICS.STEER_SPEED * speedFactor * highSpeedDamp;
     const steerAmount = steerSpeed * delta;
+    const returnAmount = steerAmount * PHYSICS.STEER_RETURN_MULTIPLIER;
 
     if (controls.steerLeft) {
       vehicle.steerAngle = Math.min(vehicle.steerAngle + steerAmount, PHYSICS.MAX_STEER_ANGLE);
@@ -160,9 +167,9 @@ export class VehiclePhysics {
     } else {
       // Return to center
       if (vehicle.steerAngle > 0) {
-        vehicle.steerAngle = Math.max(0, vehicle.steerAngle - steerAmount * 1.5);
+        vehicle.steerAngle = Math.max(0, vehicle.steerAngle - returnAmount);
       } else {
-        vehicle.steerAngle = Math.min(0, vehicle.steerAngle + steerAmount * 1.5);
+        vehicle.steerAngle = Math.min(0, vehicle.steerAngle + returnAmount);
       }
     }
 
@@ -291,10 +298,12 @@ export class VehiclePhysics {
     const moveDistance = speedMs * delta;
 
     // Accumulate heading from steering input.
-    // steerLeft → positive steerAngle; Three.js positive Y rotation = clockwise from above = right turn.
-    // Negate so steerLeft (positive angle) decreases heading = turns left.
-    const steerFactor = -(vehicle.steerAngle / PHYSICS.MAX_STEER_ANGLE);
-    const turnAmount = steerFactor * 2.0 * Math.min(speedMs / 20, 1) * delta;
+    // Chase camera right vector = world -X (camera behind car, looking +Z).
+    // So positive Y rotation (heading increases) → car front → world +X → screen LEFT = left turn.
+    // steerLeft → positive steerAngle → positive steerFactor → heading increases → left turn. ✓
+    const steerFactor = vehicle.steerAngle / PHYSICS.MAX_STEER_ANGLE;
+    const speedGain = Math.min(speedMs / 22, 1);
+    const turnAmount = steerFactor * PHYSICS.TURN_AMOUNT_SCALE * speedGain * delta;
     this.headingAngle += turnAmount;
 
     // Car front faces +Z at heading=0. Movement direction = (sin, 0, cos).
@@ -303,9 +312,23 @@ export class VehiclePhysics {
 
     const surface = sampleDriveSurface(newX, newZ, worldStore.isElevated);
 
-    worldStore.setPlayerPosition({ x: newX, y: surface.playerY, z: newZ });
+    // Smooth Y transitions so ramps and surface changes don't snap the camera/vehicle.
+    // - Small differences (< 0.1m): snap immediately. Prevents tiny floating-point
+    //   ripple from the surface sampler from registering as motion frame-to-frame.
+    // - Medium differences (0.1–2m): fast ease (used on shallow ramps).
+    // - Big differences (>2m): slower ease so big jumps don't snap the camera.
+    const yDelta = surface.playerY - this.smoothedY;
+    const absDelta = Math.abs(yDelta);
+    if (absDelta < 0.1) {
+      this.smoothedY = surface.playerY;
+    } else {
+      const easing = absDelta > 2 ? 1 - Math.exp(-7 * delta) : 1 - Math.exp(-12 * delta);
+      this.smoothedY += yDelta * easing;
+    }
+
+    worldStore.setPlayerPosition({ x: newX, y: this.smoothedY, z: newZ });
     worldStore.setElevation(surface.elevation, surface.isElevated);
-    gameStore.setPlayerPosition({ x: newX, y: surface.playerY, z: newZ });
+    gameStore.setPlayerPosition({ x: newX, y: this.smoothedY, z: newZ });
 
     // Expose heading to game store so PlayerVehicle can rotate the mesh correctly
     gameStore.updateVehicleState({ headingAngle: this.headingAngle });
@@ -349,6 +372,7 @@ export class VehiclePhysics {
     });
 
     this.headingAngle = 0;
+    this.smoothedY = 0.5;
     this.driftAngle = 0;
     this.driftStartTime = 0;
     this.sessionTopSpeed = 0;

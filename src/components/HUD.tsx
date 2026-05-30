@@ -150,8 +150,6 @@ export function HUD() {
         )}
       </div>
 
-      {/* Minimap */}
-      <Minimap />
     </div>
   );
 }

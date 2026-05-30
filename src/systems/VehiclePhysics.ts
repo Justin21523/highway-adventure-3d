@@ -10,6 +10,7 @@
 
 import * as THREE from 'three';
 import { useGameStore } from '@/stores/gameStore';
+import type { VehicleState } from '@/stores/gameStore';
 import { useWorldStore } from '@/stores/worldStore';
 import { useQuestStore } from '@/stores/questStore';
 import { GameRuntime } from './GameRuntime';
@@ -109,7 +110,7 @@ export class VehiclePhysics {
   /* ── Acceleration & Braking ── */
 
   /** Update vehicle acceleration */
-  private updateAcceleration(vehicle: typeof import('@/types/core').VehicleState, delta: number): void {
+  private updateAcceleration(vehicle: VehicleState, delta: number): void {
     const gameStore = useGameStore.getState();
     const controls = gameStore.controls;
 
@@ -146,7 +147,7 @@ export class VehiclePhysics {
   /* ── Steering ── */
 
   /** Update vehicle steering */
-  private updateSteering(vehicle: typeof import('@/types/core').VehicleState, delta: number): void {
+  private updateSteering(vehicle: VehicleState, delta: number): void {
     const gameStore = useGameStore.getState();
     const controls = gameStore.controls;
 
@@ -180,7 +181,7 @@ export class VehiclePhysics {
   /* ── Drifting ── */
 
   /** Update vehicle drifting behavior */
-  private updateDrifting(vehicle: typeof import('@/types/core').VehicleState, delta: number): void {
+  private updateDrifting(vehicle: VehicleState, delta: number): void {
     const gameStore = useGameStore.getState();
     const controls = gameStore.controls;
 
@@ -239,7 +240,7 @@ export class VehiclePhysics {
   /* ── Speed Boost ── */
 
   /** Update speed boost state */
-  private updateSpeedBoost(vehicle: typeof import('@/types/core').VehicleState, delta: number): void {
+  private updateSpeedBoost(vehicle: VehicleState, delta: number): void {
     const gameStore = useGameStore.getState();
 
     if (!vehicle.isBoosting) return;
@@ -258,7 +259,7 @@ export class VehiclePhysics {
   /* ── Fuel Management ── */
 
   /** Update fuel consumption timer */
-  private updateFuelTimer(vehicle: typeof import('@/types/core').VehicleState): void {
+  private updateFuelTimer(vehicle: VehicleState): void {
     // Idle fuel consumption
     const gameStore = useGameStore.getState();
     if (!gameStore.controls.throttle && vehicle.fuel > 0) {
@@ -270,7 +271,7 @@ export class VehiclePhysics {
   /* ── Collision Response ── */
 
   /** Update collision response */
-  private updateCollisionResponse(vehicle: typeof import('@/types/core').VehicleState, delta: number): void {
+  private updateCollisionResponse(vehicle: VehicleState, delta: number): void {
     const gameStore = useGameStore.getState();
 
     // Check collision with traffic
@@ -289,7 +290,7 @@ export class VehiclePhysics {
   /* ── Player Position Update ── */
 
   /** Update player position in world store based on vehicle state */
-  private updatePlayerPosition(vehicle: typeof import('@/types/core').VehicleState, delta: number): void {
+  private updatePlayerPosition(vehicle: VehicleState, delta: number): void {
     const worldStore = useWorldStore.getState();
     const gameStore = useGameStore.getState();
     const currentPos = worldStore.playerPosition;
@@ -307,8 +308,28 @@ export class VehiclePhysics {
     this.headingAngle += turnAmount;
 
     // Car front faces +Z at heading=0. Movement direction = (sin, 0, cos).
-    const newX = currentPos.x + Math.sin(this.headingAngle) * moveDistance;
-    const newZ = currentPos.z + Math.cos(this.headingAngle) * moveDistance;
+    let newX = currentPos.x + Math.sin(this.headingAngle) * moveDistance;
+    let newZ = currentPos.z + Math.cos(this.headingAngle) * moveDistance;
+
+    if (!Number.isFinite(newX) || !Number.isFinite(newZ) || !Number.isFinite(this.headingAngle)) {
+      this.headingAngle = 0;
+      newX = 4.35;
+      newZ = Number.isFinite(currentPos.z) ? currentPos.z : 0;
+      vehicle.speed = 0;
+      gameStore.updateVehicleState({ speed: 0, steerAngle: 0, headingAngle: 0 });
+    }
+
+    // Keep the arcade vehicle inside the currently rendered drivable corridor.
+    // The full road network has elevated decks and ramps around x ~= 20, so the
+    // bound is intentionally wide. This prevents a hard steer from sending the
+    // camera into unrendered space and looking like a black-screen freeze.
+    const maxDriveX = 42;
+    if (newX > maxDriveX || newX < -maxDriveX) {
+      newX = THREE.MathUtils.clamp(newX, -maxDriveX, maxDriveX);
+      vehicle.speed *= 0.92;
+      this.headingAngle = THREE.MathUtils.lerp(this.headingAngle, 0, Math.min(1, delta * 1.8));
+      gameStore.updateVehicleState({ speed: vehicle.speed, headingAngle: this.headingAngle });
+    }
 
     const surface = sampleDriveSurface(newX, newZ, worldStore.isElevated);
 
@@ -345,7 +366,7 @@ export class VehiclePhysics {
   /* ── XP Generation ── */
 
   /** Update XP timer for distance-based XP */
-  private updateXpTimer(vehicle: typeof import('@/types/core').VehicleState): void {
+  private updateXpTimer(vehicle: VehicleState): void {
     if (vehicle.speed < 5) return;
 
     // Award XP for driving

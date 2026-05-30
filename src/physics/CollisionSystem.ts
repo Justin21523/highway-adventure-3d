@@ -87,4 +87,42 @@ export class CollisionSystem {
 
     return { newVelocity: newVel, damage };
   }
+  
+  static checkOverlap(a: AABB, b: AABB): { overlaps: boolean; overlapVec: IVec3; depth: number } {
+    const ox = Math.min(a.max.x, b.max.x) - Math.max(a.min.x, b.min.x);
+    const oy = Math.min(a.max.y, b.max.y) - Math.max(a.min.y, b.min.y);
+    const oz = Math.min(a.max.z, b.max.z) - Math.max(a.min.z, b.min.z);
+
+    if (ox < 0 || oy < 0 || oz < 0) return { overlaps: false, overlapVec: { x: 0, y: 0, z: 0 }, depth: 0 };
+
+    let axis = 'x'; let depth = ox;
+    if (oy < depth) { axis = 'y'; depth = oy; }
+    if (oz < depth) { axis = 'z'; depth = oz; }
+
+    const centerA = { x: (a.min.x + a.max.x) / 2, y: (a.min.y + a.max.y) / 2, z: (a.min.z + a.max.z) / 2 };
+    const centerB = { x: (b.min.x + b.max.x) / 2, y: (b.min.y + b.max.y) / 2, z: (b.min.z + b.max.z) / 2 };
+    const dir = axis === 'x' ? Math.sign(centerA.x - centerB.x) : axis === 'y' ? Math.sign(centerA.y - centerB.y) : Math.sign(centerA.z - centerB.z);
+
+    const overlapVec = {
+      x: axis === 'x' ? depth * dir : 0,
+      y: axis === 'y' ? depth * dir : 0,
+      z: axis === 'z' ? depth * dir : 0
+    };
+
+    return { overlaps: true, overlapVec, depth };
+  }
+
+  static resolveArcadeImpact(velocity: IVec3, normal: IVec3, mass: number, restitution: number, damageThreshold: number) {
+    const dot = velocity.x * normal.x + velocity.y * normal.y + velocity.z * normal.z;
+    if (dot > 0) return { newVelocity: velocity, damage: 0 }; // Moving away
+
+    const impactSpeed = Math.abs(dot);
+    const newVel = {
+      x: velocity.x + normal.x * dot * (1 + restitution),
+      y: velocity.y + normal.y * dot * (1 + restitution),
+      z: velocity.z + normal.z * dot * (1 + restitution)
+    };
+    const damage = impactSpeed > damageThreshold ? (impactSpeed - damageThreshold) * mass * 0.04 : 0;
+    return { newVelocity: newVel, damage };
+  }
 }

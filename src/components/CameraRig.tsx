@@ -16,6 +16,19 @@ export function CameraRig({ vehicleRef }: { vehicleRef: React.RefObject<THREE.Gr
     if (!vehicleRef.current) return;
     const mesh = vehicleRef.current;
     const speed = useGameStore.getState().vehicle.speed;
+    if (
+      !Number.isFinite(mesh.position.x) ||
+      !Number.isFinite(mesh.position.y) ||
+      !Number.isFinite(mesh.position.z) ||
+      !Number.isFinite(mesh.rotation.y)
+    ) {
+      mesh.position.set(4.35, 1, 0);
+      mesh.rotation.set(0, 0, 0);
+      currentPos.current.set(0, 4, -12);
+      currentLookAt.current.set(0, 1, 8);
+      useGameStore.getState().resetVehicle();
+      return;
+    }
 
     // 1. Calculate ideal chase position & target
     const dist = 7 + Math.min(speed / 180, 1) * 6;

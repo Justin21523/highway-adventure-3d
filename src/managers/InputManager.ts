@@ -72,6 +72,7 @@ export class InputManager {
   };
 
   private onTouchStart = (e: TouchEvent) => {
+    if (this.isUiTouch(e)) return;
     e.preventDefault();
     for (const touch of e.changedTouches) {
       this.assignTouchZone(touch.identifier, touch.clientX, touch.clientY);
@@ -148,6 +149,11 @@ export class InputManager {
     this.state.handbrake = false; this.state.boost = false;
     this.activeTouches.clear();
   };
+
+  private isUiTouch(e: TouchEvent): boolean {
+    const target = e.target;
+    return target instanceof HTMLElement && !!target.closest('[data-ui-interactive="true"]');
+  }
 
   dispose() {
     window.removeEventListener('keydown', this.onKeyDown);

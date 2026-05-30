@@ -34,6 +34,9 @@ interface ShopStoreState {
 
   /** ID of the shop the player is nearest to */
   nearestShopId: EntityId | null;
+
+  /** Shop currently being explored in first/third-person interior mode */
+  interiorShopId: EntityId | null;
 }
 
 /** Shape of the shop store actions */
@@ -57,6 +60,8 @@ interface ShopStoreActions {
   /* ── Shop UI ── */
   openShop: (shopId: EntityId) => void;
   closeShop: () => void;
+  enterShopInterior: (shopId: EntityId) => void;
+  exitShopInterior: () => void;
   getOpenShop: () => Shop | undefined;
   getOpenShopItems: () => ShopItem[];
 
@@ -88,6 +93,7 @@ export const useShopStore = create<ShopStoreState & ShopStoreActions>()((set, ge
   openShopId: null,
   isNearShop: false,
   nearestShopId: null,
+  interiorShopId: null,
 
   /* ── Shop Management Actions ── */
 
@@ -208,6 +214,14 @@ export const useShopStore = create<ShopStoreState & ShopStoreActions>()((set, ge
 
   closeShop: () => set({ openShopId: null }),
 
+  enterShopInterior: (shopId) => {
+    const shop = get().activeShops.get(shopId);
+    if (!shop) return;
+    set({ interiorShopId: shopId, openShopId: shopId });
+  },
+
+  exitShopInterior: () => set({ interiorShopId: null, openShopId: null }),
+
   getOpenShop: () => {
     const shopId = get().openShopId;
     if (!shopId) return undefined;
@@ -243,5 +257,6 @@ export const useShopStore = create<ShopStoreState & ShopStoreActions>()((set, ge
       openShopId: null,
       isNearShop: false,
       nearestShopId: null,
+      interiorShopId: null,
     }),
 }));

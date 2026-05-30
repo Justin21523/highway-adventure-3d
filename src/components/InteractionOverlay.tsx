@@ -14,11 +14,11 @@ import { useGameStore } from '@/stores/gameStore';
 
 export function InteractionOverlay() {
   const isNearShop = useShopStore((state) => state.isNearShop);
-  const nearShopId = useShopStore((state) => state.nearShopId);
+  const nearShopId = useShopStore((state) => state.nearestShopId);
   const activeShops = useShopStore((state) => state.activeShops);
   const gameMode = useGameStore((state) => state.gameMode);
 
-  if (gameMode !== 'playing' && gameMode !== 'exploration') return null;
+  if (gameMode !== 'playing') return null;
 
   if (!isNearShop || !nearShopId) return null;
 

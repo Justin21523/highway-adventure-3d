@@ -7,7 +7,7 @@
 
 import { useMemo } from 'react';
 import { useShopStore } from '@/stores/shopStore';
-import { SHOP_COLORS, SHOP_NAMES } from '@/constants/shops';
+import { SHOP_COLORS } from '@/constants/shops';
 
 /* ─────────────────────────────────────────────
  * ShopBuildings Component
@@ -39,7 +39,8 @@ interface ShopBuildingProps {
 
 function ShopBuilding({ shop }: ShopBuildingProps) {
   const color = SHOP_COLORS[shop.category] || '#888888';
-  const isNear = useShopStore((state) => state.nearShopId === shop.id);
+  const isNear = useShopStore((state) => state.nearestShopId === shop.id);
+  const floors = Math.max(1, Math.floor(shop.buildingHeight / 4));
 
   return (
     <group
@@ -50,6 +51,12 @@ function ShopBuilding({ shop }: ShopBuildingProps) {
       <mesh position={[0, shop.buildingHeight / 2, 0]} castShadow>
         <boxGeometry args={[shop.buildingWidth, shop.buildingHeight, shop.buildingDepth]} />
         <meshStandardMaterial color={color} roughness={0.6} metalness={0.2} />
+      </mesh>
+
+      {/* Podium / sidewalk apron */}
+      <mesh position={[0, 0.08, shop.buildingDepth / 2 + 2.2]}>
+        <boxGeometry args={[shop.buildingWidth + 4, 0.16, 4]} />
+        <meshStandardMaterial color="#737373" roughness={0.75} />
       </mesh>
 
       {/* Roof */}
@@ -77,14 +84,18 @@ function ShopBuilding({ shop }: ShopBuildingProps) {
       </mesh>
 
       {/* Windows */}
-      <mesh position={[-shop.buildingWidth * 0.25, shop.buildingHeight * 0.6, shop.buildingDepth / 2 + 0.05]}>
-        <boxGeometry args={[1.2, 1, 0.05]} />
-        <meshStandardMaterial color="#a8dadc" metalness={0.9} roughness={0.1} transparent opacity={0.5} />
-      </mesh>
-      <mesh position={[shop.buildingWidth * 0.25, shop.buildingHeight * 0.6, shop.buildingDepth / 2 + 0.05]}>
-        <boxGeometry args={[1.2, 1, 0.05]} />
-        <meshStandardMaterial color="#a8dadc" metalness={0.9} roughness={0.1} transparent opacity={0.5} />
-      </mesh>
+      {Array.from({ length: floors }).map((_, floor) => (
+        <group key={floor} position={[0, 2.8 + floor * 3.2, shop.buildingDepth / 2 + 0.05]}>
+          <mesh position={[-shop.buildingWidth * 0.25, 0, 0]}>
+            <boxGeometry args={[1.2, 1, 0.05]} />
+            <meshStandardMaterial color="#a8dadc" metalness={0.9} roughness={0.1} transparent opacity={0.5} />
+          </mesh>
+          <mesh position={[shop.buildingWidth * 0.25, 0, 0]}>
+            <boxGeometry args={[1.2, 1, 0.05]} />
+            <meshStandardMaterial color="#a8dadc" metalness={0.9} roughness={0.1} transparent opacity={0.5} />
+          </mesh>
+        </group>
+      ))}
 
       {/* Interaction zone indicator (visible when near) */}
       {isNear && (

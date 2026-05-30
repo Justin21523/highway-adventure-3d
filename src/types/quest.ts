@@ -9,13 +9,17 @@ export type QuestStatus = 'available' | 'active' | 'completed' | 'failed' | 'exp
 /** Objective type determines how progress is tracked */
 export type ObjectiveType =
   | 'reachLocation'
+  | 'reach_location'
   | 'collectCoins'
   | 'collectItem'
   | 'deliverItem'
   | 'visitShop'
   | 'driftDistance'
+  | 'drift_distance'
   | 'reachSpeed'
+  | 'top_speed'
   | 'driveDistance'
+  | 'distance_traveled'
   | 'destroyObstacle'
   | 'interactWithNpc'
   | 'timeTrial';
@@ -66,8 +70,14 @@ export interface Quest {
 
 /** Runtime state of an active quest instance */
 export interface ActiveQuest {
+  id?: string;
   questId: string;
+  title?: string;
+  description?: string;
+  category?: QuestCategory;
   objectives: QuestObjective[];
+  rewards?: QuestReward;
+  timeLimitSeconds?: number;
   startTime: number;
   elapsedSeconds: number;
   status: QuestStatus;
@@ -112,10 +122,24 @@ export interface GameEvent {
 /** Collectible pickup in the world */
 export interface WorldPickup {
   id: EntityId;
-  type: 'coin' | 'speedBoost' | 'healthPack' | 'fuelCan' | 'treasure';
+  type: PickupType;
   position: Vector3Data;
   value: number;
   chunkId: ChunkId;
   collected: boolean;
+  collectedAt?: number;
   respawnTime: number;
+  itemId?: string;
+}
+
+export type PickupType = 'coin' | 'speedBoost' | 'healthPack' | 'fuelCan' | 'treasure' | 'fuel' | 'repair' | 'item';
+
+export interface QuestStats {
+  totalCompleted: number;
+  totalFailed: number;
+  totalDistanceDrifted: number;
+  totalDriftDistance: number;
+  totalTopSpeedReached: number;
+  totalPickupsCollected: number;
+  categoryCompleted: Record<QuestCategory, number>;
 }

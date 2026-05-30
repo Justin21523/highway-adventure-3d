@@ -4,6 +4,7 @@
 
 /** Quality tier for automatic performance scaling */
 export type QualityLevel = 'low' | 'medium' | 'high' | 'ultra';
+export type QualityTier = QualityLevel;
 
 /** Real-time performance metrics sampled each frame */
 export interface PerformanceMetrics {
@@ -63,6 +64,14 @@ export interface PerformanceConfig {
   minQualityLevel: QualityLevel;
   maxQualityLevel: QualityLevel;
   autoScale: boolean;
+}
+
+export interface PerformanceSettings {
+  qualityLevel: QualityLevel;
+  autoScale: boolean;
+  shadowsEnabled: boolean;
+  postProcessingEnabled: boolean;
+  pixelRatio: number;
 }
 
 /** WebGL capability detection result */

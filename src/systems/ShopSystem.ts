@@ -15,7 +15,7 @@ import { useQuestStore } from '@/stores/questStore';
 import { GameRuntime } from './GameRuntime';
 import { ITEM_CATALOG_MAP } from '@/constants/shops';
 import { SHOP_INTERACTION_RADIUS } from '@/constants/shops';
-import type { ShopCategory } from '@/types/shop';
+import type { Shop, ShopCategory, ShopItem } from '@/types/shop';
 import type { GameEventType } from './GameRuntime';
 
 /* ─────────────────────────────────────────────
@@ -229,7 +229,7 @@ export class ShopSystem {
   }
 
   /** Apply the effects of a purchased item */
-  private applyItemEffects(item: ReturnType<typeof ITEM_CATALOG_MAP>[string]): void {
+  private applyItemEffects(item: ShopItem): void {
     if (!item.effects || item.effects.length === 0) return;
 
     const gameStore = useGameStore.getState();
@@ -269,12 +269,12 @@ export class ShopSystem {
   }
 
   /** Get the nearest shop of a specific category */
-  getNearestShopOfCategory(category: ShopCategory): typeof import('@/types/shop').Shop | null {
+  getNearestShopOfCategory(category: ShopCategory): Shop | null {
     const store = useShopStore.getState();
     const playerPos = useWorldStore.getState().playerPosition;
     this._playerPos.set(playerPos.x, playerPos.y, playerPos.z);
 
-    let nearest: typeof import('@/types/shop').Shop | null = null;
+    let nearest: Shop | null = null;
     let nearestDist = Infinity;
 
     for (const shop of store.activeShops.values()) {

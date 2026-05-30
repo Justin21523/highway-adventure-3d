@@ -14,6 +14,7 @@ import { create } from 'zustand';
 import type { GameMode } from '@/types/core';
 import type { Quest, ActiveQuest } from '@/types/quest';
 import { xpForLevel, totalXpForLevel, levelFromXp } from '@/constants/economy';
+import type * as THREE from 'three';
 
 /* ─────────────────────────────────────────────
  * Types
@@ -32,19 +33,27 @@ export interface PlayerProfile {
   totalDistanceTraveled: number;
   totalCoinsCollected: number;
   totalQuestsCompleted: number;
+  xpToNext: number;
 }
 
 /** Vehicle state shape (simplified for UI) */
-interface VehicleState {
+export interface VehicleState {
+  position: PlayerPosition;
+  rotation: PlayerPosition;
+  velocity: PlayerPosition;
   speed: number;
   maxSpeed: number;
+  rpm: number;
+  gear: number;
   fuel: number;
   health: number;
+  maxHealth: number;
   isDrifting: boolean;
   isBoosting: boolean;
   boostTimer: number;
   steerAngle: number;
   headingAngle: number;
+  slipAngle: number;
 }
 
 /** Player position in world space */
@@ -78,8 +87,19 @@ interface GameStoreState {
   controls: ControlsState;
   gameMode: GameMode;
   activeQuestId: string | null;
+  activeQuest: ActiveQuest | null;
+  availableQuests: Quest[];
+  completedQuests: number;
+  maxSpeedEver: number;
+  totalDriftDistance: number;
+  totalCoinsCollected: number;
+  longestSurvivalDistance: number;
+  totalPurchases: number;
   playerPosition: PlayerPosition;
+  lastCheckpoint: PlayerPosition;
   notifications: Notification[];
+  sceneRef: { current: THREE.Scene | null } | null;
+  cameraRef: { current: THREE.Camera | null } | null;
 }
 
 /** Shape of the game store actions */
@@ -89,7 +109,7 @@ interface GameStoreActions {
   addCoins: (amount: number) => void;
   spendCoins: (amount: number) => boolean;
   addXp: (amount: number) => void;
-  addItemToInventory: (itemId: string) => void;
+  addItemToInventory: (itemId: string, count?: number) => void;
   removeItemFromInventory: (itemId: string, count?: number) => void;
   hasItem: (itemId: string) => boolean;
 
@@ -102,6 +122,7 @@ interface GameStoreActions {
   setActiveQuestId: (questId: string | null) => void;
   updateQuestObjectiveProgress: (objectiveId: string, amount: number) => void;
   completeActiveQuest: () => void;
+  completeQuest: (questId?: string) => void;
   failActiveQuest: () => void;
 
   /* ── Mode ── */
@@ -109,11 +130,14 @@ interface GameStoreActions {
 
   /* ── Vehicle ── */
   updateVehicleState: (partialState: Partial<VehicleState>) => void;
+  repairVehicle: (amount?: number) => void;
+  setControls: (partialControls: Partial<ControlsState>) => void;
 
   /* ── Notifications ── */
-  addNotification: (message: string) => void;
+  addNotification: (message: string, type?: Notification['type']) => void;
   dismissNotification: (id: string) => void;
   clearNotifications: () => void;
+  updatePerformanceMetrics: (metrics: Record<string, unknown>) => void;
 
   /* ── Position ── */
   setPlayerPosition: (pos: PlayerPosition) => void;
@@ -141,6 +165,28 @@ const INITIAL_PROFILE: PlayerProfile = {
   totalDistanceTraveled: 0,
   totalCoinsCollected: 0,
   totalQuestsCompleted: 0,
+  xpToNext: xpForLevel(2),
+};
+
+const INITIAL_POSITION: PlayerPosition = { x: 4.35, y: 0.5, z: 0 };
+
+const INITIAL_VEHICLE: VehicleState = {
+  position: INITIAL_POSITION,
+  rotation: { x: 0, y: 0, z: 0 },
+  velocity: { x: 0, y: 0, z: 0 },
+  speed: 0,
+  maxSpeed: 200,
+  rpm: 800,
+  gear: 1,
+  fuel: 100,
+  health: 100,
+  maxHealth: 100,
+  isDrifting: false,
+  isBoosting: false,
+  boostTimer: 0,
+  steerAngle: 0,
+  headingAngle: 0,
+  slipAngle: 0,
 };
 
 /* ─────────────────────────────────────────────
@@ -150,17 +196,7 @@ const INITIAL_PROFILE: PlayerProfile = {
 export const useGameStore = create<GameStoreState & GameStoreActions>()((set, get) => ({
   /* ── State ── */
   profile: INITIAL_PROFILE,
-  vehicle: {
-    speed: 0,
-    maxSpeed: 200,
-    fuel: 100,
-    health: 100,
-    isDrifting: false,
-    isBoosting: false,
-    boostTimer: 0,
-    steerAngle: 0,
-    headingAngle: 0,
-  },
+  vehicle: INITIAL_VEHICLE,
   controls: {
     throttle: false,
     brake: false,
@@ -170,8 +206,19 @@ export const useGameStore = create<GameStoreState & GameStoreActions>()((set, ge
   },
   gameMode: 'playing' as GameMode,
   activeQuestId: null,
-  playerPosition: { x: 4.35, y: 0.5, z: 0 },
+  activeQuest: null,
+  availableQuests: [],
+  completedQuests: 0,
+  maxSpeedEver: 0,
+  totalDriftDistance: 0,
+  totalCoinsCollected: 0,
+  longestSurvivalDistance: 0,
+  totalPurchases: 0,
+  playerPosition: INITIAL_POSITION,
+  lastCheckpoint: INITIAL_POSITION,
   notifications: [],
+  sceneRef: null,
+  cameraRef: null,
 
   /* ── Profile Actions ── */
 
@@ -213,17 +260,17 @@ export const useGameStore = create<GameStoreState & GameStoreActions>()((set, ge
       }
 
       return {
-        profile: { ...state.profile, xp: newXp, level: newLevel },
+        profile: { ...state.profile, xp: newXp, level: newLevel, xpToNext: xpForLevel(newLevel + 1) },
       };
     }),
 
-  addItemToInventory: (itemId) =>
+  addItemToInventory: (itemId, count = 1) =>
     set((state) => {
       if (state.profile.inventory.includes(itemId)) {
         return {}; // Already owned, no-op
       }
       return {
-        profile: { ...state.profile, inventory: [...state.profile.inventory, itemId] },
+        profile: { ...state.profile, inventory: [...state.profile.inventory, ...Array(count).fill(itemId)] },
       };
     }),
 
@@ -256,8 +303,9 @@ export const useGameStore = create<GameStoreState & GameStoreActions>()((set, ge
   /* ── Quest Actions ── */
 
   setActiveQuest: (quest) =>
-    set((state) => ({
+    set(() => ({
       activeQuestId: quest ? quest.questId : null,
+      activeQuest: quest,
     })),
 
   setActiveQuestId: (questId) => set({ activeQuestId: questId }),
@@ -273,6 +321,8 @@ export const useGameStore = create<GameStoreState & GameStoreActions>()((set, ge
       const { profile } = state;
       return {
         activeQuestId: null,
+        activeQuest: null,
+        completedQuests: state.completedQuests + 1,
         profile: {
           ...profile,
           totalQuestsCompleted: profile.totalQuestsCompleted + 1,
@@ -280,7 +330,9 @@ export const useGameStore = create<GameStoreState & GameStoreActions>()((set, ge
       };
     }),
 
-  failActiveQuest: () => set({ activeQuestId: null }),
+  completeQuest: () => get().completeActiveQuest(),
+
+  failActiveQuest: () => set({ activeQuestId: null, activeQuest: null }),
 
   /* ── Mode Actions ── */
 
@@ -291,6 +343,15 @@ export const useGameStore = create<GameStoreState & GameStoreActions>()((set, ge
   updateVehicleState: (partialState) =>
     set((state) => ({
       vehicle: { ...state.vehicle, ...partialState },
+      maxSpeedEver: Math.max(state.maxSpeedEver, partialState.speed ?? state.vehicle.speed),
+    })),
+
+  repairVehicle: (amount = 100) =>
+    set((state) => ({
+      vehicle: {
+        ...state.vehicle,
+        health: Math.min(state.vehicle.maxHealth, state.vehicle.health + amount),
+      },
     })),
 
   /* ── Controls Actions ── */
@@ -302,14 +363,14 @@ export const useGameStore = create<GameStoreState & GameStoreActions>()((set, ge
 
   /* ── Notification Actions ── */
 
-  addNotification: (message) =>
+  addNotification: (message, type = 'info') =>
     set((state) => ({
       notifications: [
         ...state.notifications,
         {
           id: `notif_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
           message,
-          type: 'info',
+          type,
           timestamp: Date.now(),
         },
       ].slice(-10), // Keep last 10 notifications
@@ -321,6 +382,8 @@ export const useGameStore = create<GameStoreState & GameStoreActions>()((set, ge
     })),
 
   clearNotifications: () => set({ notifications: [] }),
+
+  updatePerformanceMetrics: () => set(() => ({})),
 
   /* ── Persistence Helpers ── */
 
@@ -369,6 +432,7 @@ export const useGameStore = create<GameStoreState & GameStoreActions>()((set, ge
       totalDistanceTraveled: Number(profileData.totalDistanceTraveled) || 0,
       totalCoinsCollected: Number(profileData.totalCoinsCollected) || 0,
       totalQuestsCompleted: Number(profileData.totalQuestsCompleted) || 0,
+      xpToNext: xpForLevel((Number(profileData.level) || 1) + 1),
     };
 
     set({ profile: safeProfile });
@@ -377,17 +441,7 @@ export const useGameStore = create<GameStoreState & GameStoreActions>()((set, ge
   resetProfile: () =>
     set({
       profile: INITIAL_PROFILE,
-      vehicle: {
-        speed: 0,
-        maxSpeed: 200,
-        fuel: 100,
-        health: 100,
-        isDrifting: false,
-        isBoosting: false,
-        boostTimer: 0,
-        steerAngle: 0,
-        headingAngle: 0,
-      },
+      vehicle: INITIAL_VEHICLE,
       controls: {
         throttle: false,
         brake: false,
@@ -396,7 +450,7 @@ export const useGameStore = create<GameStoreState & GameStoreActions>()((set, ge
         boost: false,
       },
       activeQuestId: null,
-      playerPosition: { x: 4.35, y: 0.5, z: 0 },
+      playerPosition: INITIAL_POSITION,
       notifications: [],
     }),
 
@@ -409,17 +463,7 @@ export const useGameStore = create<GameStoreState & GameStoreActions>()((set, ge
 
   resetVehicle: () =>
     set({
-      vehicle: {
-        speed: 0,
-        maxSpeed: 200,
-        fuel: 100,
-        health: 100,
-        isDrifting: false,
-        isBoosting: false,
-        boostTimer: 0,
-        steerAngle: 0,
-        headingAngle: 0,
-      },
-      playerPosition: { x: 4.35, y: 0.5, z: 0 },
+      vehicle: INITIAL_VEHICLE,
+      playerPosition: INITIAL_POSITION,
     }),
 }));

@@ -250,7 +250,7 @@ export class PickupSystem {
     const now = Date.now();
 
     for (const pickup of questStore.worldPickups.values()) {
-      if (!pickup.collected || pickup.collectedAt === 0) continue;
+      if (!pickup.collected || !pickup.collectedAt) continue;
 
       const elapsed = (now - pickup.collectedAt) / 1000;
       if (elapsed >= pickup.respawnTime) {

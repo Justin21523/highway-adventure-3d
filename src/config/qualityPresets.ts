@@ -78,6 +78,8 @@ export const QUALITY_PRESETS: Record<QualityLevel, QualityPreset> = {
   },
 };
 
+export const qualityPresets = QUALITY_PRESETS;
+
 export const QUALITY_ORDER: QualityLevel[] = ['low', 'medium', 'high', 'ultra'];
 
 export function getNextQuality(current: QualityLevel): QualityLevel | null {

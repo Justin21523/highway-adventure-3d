@@ -49,6 +49,7 @@ interface TrafficStoreActions {
   /* ── Configuration ── */
   setSpawnConfig: (partialConfig: Partial<TrafficConfig>) => void;
   setTrafficEnabled: (enabled: boolean) => void;
+  toggleTraffic: () => void;
 
   /* ── Lane Management ── */
   updateLaneOccupancy: (edgeId: string, laneIndex: number, carIds: EntityId[], averageSpeed: number) => void;
@@ -150,11 +151,11 @@ export const useTrafficStore = create<TrafficStoreState & TrafficStoreActions>()
 
   despawnAllCars: () => set({ activeCars: new Map() }),
 
-  despawnCarsBeyond: (playerZ, despawnDistance) =>
+  despawnCarsBeyond: (playerZ, despawnDistance) => {
+    let removed = 0;
     set((state) => {
       const threshold = playerZ - despawnDistance;
       const newCars = new Map(state.activeCars);
-      let removed = 0;
 
       for (const [id, car] of newCars) {
         if (car.position.z < threshold) {
@@ -164,7 +165,9 @@ export const useTrafficStore = create<TrafficStoreState & TrafficStoreActions>()
       }
 
       return removed > 0 ? { activeCars: newCars } : {};
-    }),
+    });
+    return removed;
+  },
 
   /* ── Configuration Actions ── */
 
@@ -174,6 +177,7 @@ export const useTrafficStore = create<TrafficStoreState & TrafficStoreActions>()
     })),
 
   setTrafficEnabled: (enabled) => set({ isEnabled: enabled }),
+  toggleTraffic: () => set((state) => ({ isEnabled: !state.isEnabled })),
 
   /* ── Lane Management Actions ── */
 

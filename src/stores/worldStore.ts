@@ -59,6 +59,7 @@ interface WorldStoreActions {
 
   /* ── Helpers ── */
   getChunkAtPosition: (x: number, z: number) => ChunkId;
+  getChunkData: (chunkId: ChunkId) => ChunkData | undefined;
   getActiveChunkCount: () => number;
   resetWorld: () => void;
 }
@@ -165,6 +166,7 @@ export const useWorldStore = create<WorldStoreState & WorldStoreActions>()((set,
   /* ── Helper Actions ── */
 
   getChunkAtPosition: (x, z) => chunkGridToId(worldToChunkGrid(x, z).cx, worldToChunkGrid(x, z).cz),
+  getChunkData: (chunkId) => get().activeChunks.get(chunkId),
 
   getActiveChunkCount: () => get().activeChunks.size,
 

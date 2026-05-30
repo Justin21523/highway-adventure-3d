@@ -188,7 +188,7 @@ export class BatchManager {
     if (!this.instancedMesh || index >= this.instanceData.length) return;
 
     this.instancedMesh.setColorAt(index, color);
-    this.instancedMesh.instanceColor?.needsUpdate();
+    if (this.instancedMesh.instanceColor) this.instancedMesh.instanceColor.needsUpdate = true;
   }
 
   /**
@@ -341,12 +341,12 @@ export function createTrafficCarBatch(
   carGroup.traverse((child) => {
     if (child instanceof THREE.Mesh) {
       const mesh = child as THREE.Mesh;
-      originalMaterials.set(mesh, mesh.material);
+      originalMaterials.set(mesh, Array.isArray(mesh.material) ? mesh.material[0] : mesh.material);
 
       // Create instanced version
       const instanced = new THREE.InstancedMesh(
         mesh.geometry,
-        mesh.material,
+        Array.isArray(mesh.material) ? mesh.material[0] : mesh.material,
         maxCars,
       );
       instanced.castShadow = mesh.castShadow;

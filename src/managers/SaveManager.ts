@@ -1,6 +1,7 @@
 // src/managers/SaveManager.ts
 import { useGameStore } from '../stores/gameStore';
-import { IPlayerProfile, IQuest } from '../types/core';
+import { IPlayerProfile } from '../types/core';
+import type { Quest } from '../types/quest';
 
 const SAVE_KEY = 'highway_adventure_save_v1';
 
@@ -39,7 +40,7 @@ export class SaveManager {
       }
       
       if (Array.isArray(data.availableQuests)) {
-        useGameStore.setState({ availableQuests: data.availableQuests as IQuest[] });
+        useGameStore.setState({ availableQuests: data.availableQuests as Quest[] });
       }
     } catch (e) {
       console.warn('SaveManager: Failed to load save data. Starting fresh.', e);

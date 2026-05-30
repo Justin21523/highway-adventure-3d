@@ -10,6 +10,7 @@ import { create } from 'zustand';
 import type { EntityId, Vector3Data, ChunkId } from '@/types/core';
 import type { Shop, InventoryItem, InteractionZone, ShopItem } from '@/types/shop';
 import { ITEM_CATALOG_MAP, SHOP_ITEM_ASSIGNMENTS, SHOP_INTERACTION_RADIUS } from '@/constants/shops';
+import { useGameStore } from '@/stores/gameStore';
 
 /* ─────────────────────────────────────────────
  * Types
@@ -28,12 +29,14 @@ interface ShopStoreState {
 
   /** Currently open shop ID (null = no shop UI open) */
   openShopId: EntityId | null;
+  openShopData: Shop | null;
 
   /** Whether the player is currently inside any interaction zone */
   isNearShop: boolean;
 
   /** ID of the shop the player is nearest to */
   nearestShopId: EntityId | null;
+  nearShopId: EntityId | null;
 
   /** Shop currently being explored in first/third-person interior mode */
   interiorShopId: EntityId | null;
@@ -60,6 +63,7 @@ interface ShopStoreActions {
   /* ── Shop UI ── */
   openShop: (shopId: EntityId) => void;
   closeShop: () => void;
+  purchaseItem: (itemId: string) => boolean;
   enterShopInterior: (shopId: EntityId) => void;
   exitShopInterior: () => void;
   getOpenShop: () => Shop | undefined;
@@ -91,8 +95,10 @@ export const useShopStore = create<ShopStoreState & ShopStoreActions>()((set, ge
   interactionZones: new Map(),
   inventory: initialInventory,
   openShopId: null,
+  openShopData: null,
   isNearShop: false,
   nearestShopId: null,
+  nearShopId: null,
   interiorShopId: null,
 
   /* ── Shop Management Actions ── */
@@ -153,7 +159,7 @@ export const useShopStore = create<ShopStoreState & ShopStoreActions>()((set, ge
           newZones.set(shopId, { ...zone, isPlayerInside: near });
         }
       }
-      return { isNearShop: near, nearestShopId: near ? shopId : null, interactionZones: newZones };
+      return { isNearShop: near, nearestShopId: near ? shopId : null, nearShopId: near ? shopId : null, interactionZones: newZones };
     }),
 
   /* ── Inventory Actions ── */
@@ -209,18 +215,27 @@ export const useShopStore = create<ShopStoreState & ShopStoreActions>()((set, ge
   openShop: (shopId) => {
     const shop = get().activeShops.get(shopId);
     if (!shop) return;
-    set({ openShopId: shopId });
+    set({ openShopId: shopId, openShopData: shop });
   },
 
-  closeShop: () => set({ openShopId: null }),
+  closeShop: () => set({ openShopId: null, openShopData: null }),
+
+  purchaseItem: (itemId) => {
+    const item = ITEM_CATALOG_MAP[itemId];
+    if (!item) return false;
+    if (!useGameStore.getState().spendCoins(item.price)) return false;
+    get().addItemToInventory(itemId, 1);
+    useGameStore.setState((state) => ({ totalPurchases: state.totalPurchases + 1 }));
+    return true;
+  },
 
   enterShopInterior: (shopId) => {
     const shop = get().activeShops.get(shopId);
     if (!shop) return;
-    set({ interiorShopId: shopId, openShopId: shopId });
+    set({ interiorShopId: shopId, openShopId: shopId, openShopData: shop });
   },
 
-  exitShopInterior: () => set({ interiorShopId: null, openShopId: null }),
+  exitShopInterior: () => set({ interiorShopId: null, openShopId: null, openShopData: null }),
 
   getOpenShop: () => {
     const shopId = get().openShopId;
@@ -255,8 +270,10 @@ export const useShopStore = create<ShopStoreState & ShopStoreActions>()((set, ge
       interactionZones: new Map(),
       inventory: [...initialInventory],
       openShopId: null,
+      openShopData: null,
       isNearShop: false,
       nearestShopId: null,
+      nearShopId: null,
       interiorShopId: null,
     }),
 }));

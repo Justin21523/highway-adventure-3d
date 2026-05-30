@@ -19,6 +19,7 @@ import type { QuestCategory, QuestStatus, ObjectiveType } from '@/types/quest';
 interface QuestStoreState {
   /** Currently active quests (can have multiple) */
   activeQuests: ActiveQuest[];
+  completedQuests: Quest[];
 
   /** Quests available to accept (spawned by world events / NPCs) */
   availableQuests: Quest[];
@@ -37,10 +38,11 @@ interface QuestStoreState {
 }
 
 /** Quest statistics tracked across sessions */
-interface QuestStats {
+export interface QuestStats {
   totalCompleted: number;
   totalFailed: number;
   totalDistanceDrifted: number;
+  totalDriftDistance: number;
   totalTopSpeedReached: number;
   totalPickupsCollected: number;
   categoryCompleted: Record<QuestCategory, number>;
@@ -99,6 +101,7 @@ const initialStats: QuestStats = {
   totalCompleted: 0,
   totalFailed: 0,
   totalDistanceDrifted: 0,
+  totalDriftDistance: 0,
   totalTopSpeedReached: 0,
   totalPickupsCollected: 0,
   categoryCompleted: {
@@ -119,6 +122,7 @@ const initialStats: QuestStats = {
 export const useQuestStore = create<QuestStoreState & QuestStoreActions>()((set, get) => ({
   /* ── State ── */
   activeQuests: [],
+  completedQuests: [],
   availableQuests: [],
   worldEvents: [],
   activeTour: null,
@@ -130,8 +134,14 @@ export const useQuestStore = create<QuestStoreState & QuestStoreActions>()((set,
   acceptQuest: (quest) =>
     set((state) => {
       const active: ActiveQuest = {
+        id: quest.id,
         questId: quest.id,
+        title: quest.title,
+        description: quest.description,
+        category: quest.category,
         objectives: quest.objectives.map((obj) => ({ ...obj, current: 0, isCompleted: false })),
+        rewards: quest.rewards,
+        timeLimitSeconds: quest.timeLimitSeconds,
         startTime: Date.now(),
         elapsedSeconds: 0,
         status: 'active' as QuestStatus,
@@ -170,14 +180,24 @@ export const useQuestStore = create<QuestStoreState & QuestStoreActions>()((set,
     })),
 
   completeQuest: (questId) =>
-    set((state) => ({
-      activeQuests: state.activeQuests
-        .filter((q) => q.questId !== questId)
-        .map((quest) => {
-          if (quest.questId !== questId) return quest;
-          return { ...quest, status: 'completed' as QuestStatus };
-        }),
-    })),
+    set((state) => {
+      const active = state.activeQuests.find((q) => q.questId === questId);
+      const definition = state.availableQuests.find((q) => q.id === questId);
+      return {
+        activeQuests: state.activeQuests.filter((q) => q.questId !== questId),
+        completedQuests: definition ? [...state.completedQuests, definition] : state.completedQuests,
+        stats: {
+          ...state.stats,
+          totalCompleted: state.stats.totalCompleted + 1,
+          categoryCompleted: active?.category
+            ? {
+                ...state.stats.categoryCompleted,
+                [active.category]: state.stats.categoryCompleted[active.category] + 1,
+              }
+            : state.stats.categoryCompleted,
+        },
+      };
+    }),
 
   failQuest: (questId) =>
     set((state) => ({
@@ -222,7 +242,7 @@ export const useQuestStore = create<QuestStoreState & QuestStoreActions>()((set,
   getActiveEvents: () => get().worldEvents.filter((e) => e.isActive),
 
   getEventsNearPosition: (position, radius) => {
-    const events = get().activeEvents();
+    const events = get().getActiveEvents();
     return events.filter((event) => {
       if (!event.position) return false;
       const dx = event.position.x - position.x;
@@ -303,6 +323,7 @@ export const useQuestStore = create<QuestStoreState & QuestStoreActions>()((set,
       if (partialStats.totalCompleted !== undefined) newStats.totalCompleted += partialStats.totalCompleted;
       if (partialStats.totalFailed !== undefined) newStats.totalFailed += partialStats.totalFailed;
       if (partialStats.totalDistanceDrifted !== undefined) newStats.totalDistanceDrifted += partialStats.totalDistanceDrifted;
+      if (partialStats.totalDriftDistance !== undefined) newStats.totalDriftDistance += partialStats.totalDriftDistance;
       if (partialStats.totalTopSpeedReached !== undefined) newStats.totalTopSpeedReached = Math.max(newStats.totalTopSpeedReached, partialStats.totalTopSpeedReached);
       if (partialStats.totalPickupsCollected !== undefined) newStats.totalPickupsCollected += partialStats.totalPickupsCollected;
 
@@ -338,6 +359,7 @@ export const useQuestStore = create<QuestStoreState & QuestStoreActions>()((set,
       activeQuests: [],
       availableQuests: [],
       worldEvents: [],
+      completedQuests: [],
       activeTour: null,
       worldPickups: new Map(),
     }),

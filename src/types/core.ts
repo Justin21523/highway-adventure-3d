@@ -46,19 +46,23 @@ export type EdgeId = string;
 export type GameMode =
   | 'loading'
   | 'mainMenu'
+  | 'exploration'
   | 'playing'
   | 'paused'
   | 'shop'
   | 'garage'
   | 'questLog'
   | 'settings'
-  | 'cutscene';
+  | 'cutscene'
+  | 'crashed';
 
 /** Time of day phase for lighting/atmosphere */
 export type DayPhase = 'dawn' | 'day' | 'dusk' | 'night';
 
 /** Cardinal direction for road orientation */
 export type Direction = 'north' | 'south' | 'east' | 'west';
+
+export type ZoneType = 'highway' | 'suburban' | 'cityCenter' | 'industrial' | 'countryside';
 
 /* ── Collision ── */
 
@@ -107,6 +111,10 @@ export interface IPlayerProfile {
   inventory: string[];
   equippedVehicle: string;
   unlockedVehicles: string[];
+  totalDistanceTraveled: number;
+  totalCoinsCollected: number;
+  totalQuestsCompleted: number;
+  xpToNext: number;
 }
 
 /* ── Vehicle State (backward-compatible alias) ── */
@@ -130,6 +138,22 @@ export interface IVehicleState {
   isBoosting: boolean;
   slipAngle: number;
 }
+
+export type VehicleState = IVehicleState;
+export type PlayerProfile = IPlayerProfile;
+export type Controls = {
+  throttle: boolean;
+  brake: boolean;
+  steerLeft: boolean;
+  steerRight: boolean;
+  boost: boolean;
+};
+export type Notification = {
+  id: string;
+  message: string;
+  type: 'success' | 'error' | 'info' | 'warning';
+  timestamp: number;
+};
 
 /* ── Performance Metrics (backward-compatible alias) ── */
 

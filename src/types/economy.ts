@@ -43,3 +43,27 @@ export interface PriceModifier {
   endTime: number;
   reason: string;
 }
+
+export interface ItemCatalogEntry {
+  id: string;
+  name: string;
+  description: string;
+  price: number;
+  category: string;
+  itemType?: string;
+  rarity?: string;
+  icon?: string;
+}
+
+export interface ItemEffect {
+  type: 'heal' | 'fuel' | 'speedBoost' | 'xpBoost' | 'coinMultiplier' | 'repair' | string;
+  value: number;
+  duration?: number;
+}
+
+export interface EconomyConfig {
+  startingCoins: number;
+  coinPickupValue: number;
+  repairCostPerPoint: number;
+  fuelCostPerUnit: number;
+}

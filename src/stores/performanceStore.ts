@@ -55,6 +55,7 @@ interface PerformanceStoreActions {
 
   /* ── Settings ── */
   setAutoScaleEnabled: (enabled: boolean) => void;
+  toggleAutoScale: () => void;
   setManualOverride: (override: boolean) => void;
   getActivePreset: () => QualityPreset;
 
@@ -219,6 +220,7 @@ export const usePerformanceStore = create<PerformanceStoreState & PerformanceSto
   /* ── Settings Actions ── */
 
   setAutoScaleEnabled: (enabled) => set({ autoScaleEnabled: enabled }),
+  toggleAutoScale: () => set((state) => ({ autoScaleEnabled: !state.autoScaleEnabled })),
   setManualOverride: (override) => set({ manualOverride: override }),
 
   getActivePreset: () => getPresetForQuality(get().qualityTier),

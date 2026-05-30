@@ -43,7 +43,9 @@ export type GameEventType =
   | 'event_expired'
   | 'performance_degraded'
   | 'performance_improved'
-  | 'game_mode_changed';
+  | 'game_mode_changed'
+  | 'weather_changed'
+  | 'traffic_collision';
 
 /** Generic event handler signature */
 export type GameEventHandler = (event: GameEvent) => void;
@@ -68,7 +70,7 @@ export interface GameSystem {
   update(delta: number): void;
 
   /** Called when the game mode changes */
-  onModeChange(newMode: GameMode): void;
+  onModeChange?(newMode: GameMode): void;
 
   /** Called during cleanup */
   dispose(): void;
@@ -179,7 +181,7 @@ export class GameRuntime {
     // Notify all systems of mode change
     for (const system of this.systems) {
       try {
-        system.onModeChange(mode);
+        system.onModeChange?.(mode);
       } catch (error) {
         console.error(`GameRuntime: System "${system.constructor.name}" onModeChange threw an error:`, error);
       }

@@ -83,3 +83,5 @@ export const INPUT_CONFIG = {
   steerReturnSpeed: 5.0,
   touchSteerSensitivity: 0.8,
 } as const;
+
+export const gameConfig = GAME_CONFIG;

@@ -215,7 +215,7 @@ export class QuestSystem {
     const categories: QuestCategory[] = ['side', 'exploration', 'challenge', 'delivery'];
     const category = categories[Math.floor(Math.random() * categories.length)];
 
-    const questTemplates: Record<QuestCategory, Omit<Quest, 'id' | 'objectives'>[]> = {
+    const questTemplates: Partial<Record<QuestCategory, Omit<Quest, 'id' | 'objectives'>[]>> = {
       side: [
         {
           title: 'Supply Run',
@@ -304,7 +304,7 @@ export class QuestSystem {
     };
 
     const templates = questTemplates[category];
-    if (templates.length === 0) return null;
+    if (!templates || templates.length === 0) return null;
 
     const template = templates[Math.floor(Math.random() * templates.length)];
 
@@ -350,7 +350,7 @@ export class QuestSystem {
     const templates = objectiveTemplates[category];
     if (!templates || templates.length === 0) {
       return [
-        { type: 'driveDistance', description: 'Drive 100m', target: 100, current: 0, isCompleted: false },
+        { id: `obj_${Date.now()}_fallback`, type: 'driveDistance', description: 'Drive 100m', target: 100, current: 0, isCompleted: false },
       ];
     }
 
@@ -567,7 +567,7 @@ export class QuestSystem {
     if (anyCollected) {
       const now = Date.now();
       for (const pickup of activePickups) {
-        if (pickup.collected && (now - pickup.collected === 0)) {
+        if (pickup.collected && pickup.collectedAt && now - pickup.collectedAt < 1000) {
           // Will be despawned next frame
         }
       }

@@ -17,6 +17,7 @@ import { GameRuntime } from './GameRuntime';
 import { TRAFFIC_CONFIG, TRAFFIC_VEHICLE_TEMPLATES, TRAFFIC_TOTAL_WEIGHT } from '@/constants/traffic';
 import type { TrafficCar, TrafficState as TrafficCarState } from '@/types/traffic';
 import type { VehicleCategory } from '@/types/vehicle';
+import type { Vector3Data } from '@/types/core';
 import type { GameEventType } from './GameRuntime';
 
 /* ─────────────────────────────────────────────
@@ -274,7 +275,7 @@ export class TrafficAI {
   }
 
   /** Update a single car's AI behavior */
-  private updateCarAI(car: TrafficCar, internal: TrafficCarInternal, delta: number, playerPos: typeof import('@/types/core').Vector3Data): void {
+  private updateCarAI(car: TrafficCar, internal: TrafficCarInternal, delta: number, playerPos: Vector3Data): void {
     const distToPlayer = Math.sqrt(
       Math.pow(car.position.x - playerPos.x, 2) +
       Math.pow(car.position.z - playerPos.z, 2),

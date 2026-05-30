@@ -136,7 +136,7 @@ export class EnvironmentSystem {
   /** Advance the time of day */
   private updateTime(delta: number): void {
     // Each real second = timeSpeed game minutes
-    const gameMinutes = delta * timeSpeed * 10;
+    const gameMinutes = delta * this.timeSpeed * 10;
     this.currentTime.minute += gameMinutes;
 
     while (this.currentTime.minute >= 60) {
@@ -371,8 +371,8 @@ export class EnvironmentSystem {
       groundColor = '#1a1a1a';
     }
 
-    this.hemisphereLight.color.setHex(skyColor);
-    this.hemisphereLight.groundColor.setHex(groundColor);
+    this.hemisphereLight.color.set(skyColor);
+    this.hemisphereLight.groundColor.set(groundColor);
   }
 
   /** Linear interpolation between two hex colors */

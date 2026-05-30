@@ -1,7 +1,8 @@
 /**
  * World generation and road network types.
  */
-import type { Vector3Data, ChunkId, NodeId, EdgeId, Direction, AABB } from './core';
+import type { Vector3Data, ChunkId, NodeId, EdgeId, Direction, AABB, ZoneType } from './core';
+export type { ChunkId, ZoneType } from './core';
 
 /* ── Road Types ── */
 
@@ -63,9 +64,6 @@ export interface RoadNode {
 
 /** Lifecycle state of a world chunk */
 export type ChunkState = 'planned' | 'generating' | 'active' | 'unloading' | 'disposed';
-
-/** Biome/zone type that influences chunk content */
-export type ZoneType = 'highway' | 'suburban' | 'cityCenter' | 'industrial' | 'countryside';
 
 /** Complete data for a single world chunk */
 export interface ChunkData {

@@ -13,6 +13,7 @@ export const ROAD_CONFIG = {
   SHOULDER_WIDTH: 2.5,
   CURB_HEIGHT: 0.15,
   CURB_WIDTH: 0.3,
+  MARKING_LENGTH: 4,
   
   // Visual Materials
   MATERIALS: {

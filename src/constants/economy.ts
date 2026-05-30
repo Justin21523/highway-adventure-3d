@@ -12,6 +12,8 @@ export const ECONOMY = {
   FUEL_CAN_VALUE: 20,
 } as const;
 
+export const ECONOMY_CONFIG = ECONOMY;
+
 export const QUEST_REWARDS = {
   BASE_COIN_REWARD: 500,
   BASE_XP_REWARD: 100,

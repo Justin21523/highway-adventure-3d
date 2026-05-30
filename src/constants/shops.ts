@@ -9,6 +9,14 @@ export const SHOP_DEFAULT_WIDTH = 10;
 export const SHOP_DEFAULT_DEPTH = 8;
 export const SHOP_DEFAULT_HEIGHT = 5;
 
+export const SHOP_CONFIG = {
+  interactionRadius: SHOP_INTERACTION_RADIUS,
+  signHeight: SHOP_SIGN_HEIGHT,
+  defaultWidth: SHOP_DEFAULT_WIDTH,
+  defaultDepth: SHOP_DEFAULT_DEPTH,
+  defaultHeight: SHOP_DEFAULT_HEIGHT,
+} as const;
+
 export const SHOP_COLORS: Record<ShopCategory, string> = {
   convenienceStore: '#22aa44',
   gasStation: '#ff6600',

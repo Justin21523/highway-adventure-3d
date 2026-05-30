@@ -34,9 +34,11 @@ export function CollisionManager() {
     );
 
     // Procedural Spawning
-    if (activeObstacles.current.length < 10 && Math.random() < 0.05) {
+    if (activeObstacles.current.length < 6 && state.vehicle.speed > 20 && Math.random() < 0.004) {
       const spawnZ = pPos.z + 120 + Math.random() * 40;
-      const lane = (Math.floor(Math.random() * 3) - 1) * 4;
+      const playerLane = Math.round(pPos.x / 4) * 4;
+      const lanes = [-8, -4, 0, 4, 8].filter((lane) => Math.abs(lane - playerLane) > 2);
+      const lane = lanes[Math.floor(Math.random() * lanes.length)] ?? 0;
       activeObstacles.current.push({
         id: Math.random(),
         position: new THREE.Vector3(lane, 0.5, spawnZ),
@@ -68,12 +70,13 @@ export function CollisionManager() {
           8
         );
 
+        const damage = Math.min(12, response.damage);
         useGameStore.setState(s => ({
           vehicle: {
             ...s.vehicle,
-            speed: Math.max(10, response.newVelocity.z * 3.6),
+            speed: Math.max(0, Math.min(s.vehicle.speed, Math.abs(response.newVelocity.z) * 3.6)),
             isDrifting: true,
-            health: Math.max(0, s.vehicle.health - response.damage)
+            health: Math.max(5, s.vehicle.health - damage)
           }
         }));
 

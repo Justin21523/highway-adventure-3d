@@ -7,7 +7,8 @@
 import { useShopStore } from '@/stores/shopStore';
 import { useGameStore } from '@/stores/gameStore';
 import { ITEM_CATALOG_MAP } from '@/constants/shops';
-import { formatCoins, formatDecimal } from '@/utils/format';
+import type { ShopItem } from '@/types/shop';
+import { formatCoins } from '@/utils/format';
 
 /* ─────────────────────────────────────────────
  * ShopModal Component
@@ -48,7 +49,7 @@ export function ShopModal({ isOpen, onClose }: { isOpen: boolean; onClose: () =>
           <div>
             <h3 className="mb-3 text-lg font-bold text-blue-400">Shop Items</h3>
             <div className="space-y-3">
-              {openShop.items.map((itemId) => {
+              {openShop.items.map((itemId: string) => {
                 const item = ITEM_CATALOG_MAP[itemId];
                 if (!item) return null;
 
@@ -77,7 +78,7 @@ export function ShopModal({ isOpen, onClose }: { isOpen: boolean; onClose: () =>
                 inventory.map((invItem, index) => (
                   <div key={index} className="flex items-center justify-between rounded-lg bg-gray-800 p-3">
                     <div>
-                      <div className="font-bold text-white">{invItem.name}</div>
+                      <div className="font-bold text-white">{ITEM_CATALOG_MAP[invItem.itemId]?.name ?? invItem.itemId}</div>
                       <div className="text-xs text-gray-400">Qty: {invItem.quantity}</div>
                     </div>
                     <button className="rounded bg-blue-600 px-3 py-1 text-xs text-white hover:bg-blue-500">
@@ -114,7 +115,7 @@ function ShopItemCard({
   meetsLevel,
   onPurchase,
 }: {
-  item: ReturnType<typeof ITEM_CATALOG_MAP>[string];
+  item: ShopItem;
   canAfford: boolean;
   meetsLevel: boolean;
   onPurchase: () => void;
@@ -136,7 +137,7 @@ function ShopItemCard({
 
       {item.effects && item.effects.length > 0 && (
         <div className="mb-3 text-xs text-gray-400">
-          Effects: {item.effects.map((e) => e.type).join(', ')}
+          Effects: {item.effects.map((e: { type: string }) => e.type).join(', ')}
         </div>
       )}
 

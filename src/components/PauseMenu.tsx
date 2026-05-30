@@ -20,7 +20,7 @@ export function PauseMenu({ onResume, onGarage, onMainMenu }: {
   const gameMode = useGameStore((state) => state.gameMode);
   const [showSettings, setShowSettings] = useState(false);
 
-  if (gameMode !== 'pause') return null;
+  if (gameMode !== 'paused') return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70">

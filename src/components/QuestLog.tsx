@@ -64,7 +64,7 @@ export function QuestLog({ isOpen, onClose }: { isOpen: boolean; onClose: () => 
                 <AvailableQuestCard
                   key={quest.id}
                   quest={quest}
-                  onAccept={() => acceptQuest(quest.id)}
+                  onAccept={() => acceptQuest(quest)}
                 />
               ))}
             </div>
@@ -109,12 +109,12 @@ function QuestCard({ quest, isCompleted }: { quest: import('@/types/quest').Acti
     <div className={`rounded-lg border p-4 ${isCompleted ? 'border-green-500/50 bg-green-900/30' : 'border-yellow-500/50 bg-yellow-900/20'}`}>
       <div className="mb-2 flex items-center justify-between">
         <h4 className={`font-bold ${isCompleted ? 'text-green-300 line-through' : 'text-yellow-300'}`}>
-          {quest.title}
+          {quest.title ?? quest.questId}
         </h4>
-        <span className="text-xs text-gray-400">{formatQuestCategory(quest.category)}</span>
+        <span className="text-xs text-gray-400">{formatQuestCategory(quest.category ?? 'side')}</span>
       </div>
 
-      <p className="mb-3 text-sm text-gray-300">{quest.description}</p>
+      <p className="mb-3 text-sm text-gray-300">{quest.description ?? 'Quest in progress'}</p>
 
       {/* Objectives */}
       <div className="space-y-2">
@@ -125,17 +125,17 @@ function QuestCard({ quest, isCompleted }: { quest: import('@/types/quest').Acti
 
       {/* Rewards */}
       <div className="mt-3 flex items-center gap-4 text-xs text-gray-400">
-        <span>🪙 {quest.rewards.coins}</span>
-        <span>⭐ {quest.rewards.xp} XP</span>
-        {quest.rewards.items.length > 0 && (
-          <span>📦 {quest.rewards.items.length} items</span>
+        <span>🪙 {quest.rewards?.coins ?? 0}</span>
+        <span>⭐ {quest.rewards?.xp ?? 0} XP</span>
+        {(quest.rewards?.items?.length ?? 0) > 0 && (
+          <span>📦 {quest.rewards?.items.length} items</span>
         )}
       </div>
 
       {/* Time limit */}
-      {quest.timeLimitSeconds > 0 && (
+      {(quest.timeLimitSeconds ?? 0) > 0 && (
         <div className="mt-2 text-xs text-gray-500">
-          Time remaining: {formatTime(quest.timeLimitSeconds - quest.elapsedSeconds)}
+          Time remaining: {formatTime((quest.timeLimitSeconds ?? 0) - quest.elapsedSeconds)}
         </div>
       )}
 

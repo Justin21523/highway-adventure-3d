@@ -15,13 +15,22 @@ import { ShopBuildings } from './ShopBuildings';
 import { PickupObjects } from './PickupObjects';
 import { EnvironmentLights } from './EnvironmentLights';
 import { Obstacles } from './Obstacles';
-import { PostProcessing } from './PostProcessing';
 import { TrafficBatchSystem } from './world/TrafficBatchSystem';
-import { CollisionManager } from './world/CollisionManager';
 import { ChunkRenderer } from './world/ChunkRenderer';
 import { HighwayNetworkSystem } from './world/HighwayNetworkSystem';
 import { ParallaxScenery } from './world/ParallaxScenery';
 import { WorldShopSpawner } from './world/WorldShopSpawner';
+import { ParallaxBackground } from './world/ParallaxBackground';
+import { LightingController } from './world/LightingController';
+import { PickupSystem as WorldPickupSystem } from './world/PickupSystem';
+import { CheckpointSystem } from './world/CheckpointSystem';
+import { RoadSignSystem } from './world/RoadSignSystem';
+import { QuestProgressTracker } from './world/QuestProgressTracker';
+import { GarageZone } from './world/GarageZone';
+import { TrafficAIController } from './world/TrafficAIController';
+import { DecorationBatchSystem } from './world/DecorationBatchSystem';
+import { RoadMarkingBatchSystem } from './world/RoadMarkingBatchSystem';
+import { ShopInteraction } from '@/ui/ShopInteraction';
 
 /* ─────────────────────────────────────────────
  * GameScene Component
@@ -37,6 +46,7 @@ export function GameScene() {
     <group>
       {/* 環境照明 */}
       <EnvironmentLights />
+      <LightingController />
 
       {/* ショップ建物 */}
       <WorldShopSpawner />
@@ -47,9 +57,11 @@ export function GameScene() {
 
       {/* ピックアップアイテム */}
       <PickupObjects />
+      <WorldPickupSystem />
 
       {/* トラフィック (InstancedMesh バッチ) */}
       <TrafficBatchSystem />
+      <TrafficAIController />
 
       {/* プレイヤー車両 — vehicleRef を渡す */}
       <PlayerVehicle vehicleRef={vehicleRef} />
@@ -60,15 +72,18 @@ export function GameScene() {
       {/* 道路・チャンク生成 */}
       <HighwayNetworkSystem />
       <ChunkRenderer />
+      <RoadMarkingBatchSystem />
+      <DecorationBatchSystem />
+      <CheckpointSystem />
+      <RoadSignSystem />
+      <GarageZone vehicleRef={vehicleRef} />
+      <ShopInteraction vehicleRef={vehicleRef} />
 
       {/* 背景スクロール */}
       <ParallaxScenery />
+      <ParallaxBackground />
 
-      {/* ポストエフェクト */}
-      <PostProcessing />
-
-      {/* 衝突管理 */}
-      <CollisionManager />
+      <QuestProgressTracker />
     </group>
   );
 }

@@ -23,7 +23,7 @@ export function PostProcessing() {
   return (
     <>
       {/* Bloom effect */}
-      {quality !== 'low' && <BloomEffect intensity={quality === 'ultra' ? 0.8 : 0.5} />}
+      <BloomEffect intensity={quality === 'ultra' ? 0.8 : 0.5} />
 
       {/* Vignette effect */}
       {quality === 'high' || quality === 'ultra' ? (

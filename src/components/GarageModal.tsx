@@ -57,7 +57,7 @@ export function GarageModal({ isOpen, onClose }: { isOpen: boolean; onClose: () 
         {/* Vehicle actions */}
         <div className="mb-6 grid grid-cols-2 gap-4">
           <button
-            onClick={() => repairVehicle({ health: Math.min(100, vehicle.health + 25) })}
+            onClick={() => updateVehicleState({ health: Math.min(vehicle.maxHealth, vehicle.health + 25) })}
             className="rounded-lg bg-green-600 px-4 py-3 text-white hover:bg-green-500"
           >
             <div className="text-lg font-bold">🔧 Repair</div>
@@ -65,7 +65,7 @@ export function GarageModal({ isOpen, onClose }: { isOpen: boolean; onClose: () 
           </button>
 
           <button
-            onClick={() => repairVehicle({ fuel: Math.min(100, vehicle.fuel + 25) })}
+            onClick={() => updateVehicleState({ fuel: Math.min(100, vehicle.fuel + 25) })}
             className="rounded-lg bg-orange-600 px-4 py-3 text-white hover:bg-orange-500"
           >
             <div className="text-lg font-bold">⛽ Refuel</div>

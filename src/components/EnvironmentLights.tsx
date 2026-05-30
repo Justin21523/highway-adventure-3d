@@ -128,9 +128,7 @@ export function EnvironmentLights() {
       {/* Hemisphere light (sky/ground) */}
       <hemisphereLight
         ref={hemisphereRef}
-        skyColor="#87ceeb"
-        groundColor="#362d1b"
-        intensity={0.3}
+        args={['#87ceeb', '#362d1b', 0.3]}
       />
     </>
   );

@@ -207,6 +207,10 @@ export class AudioManager {
     }
   }
 
+  public getContext(): AudioContext | null {
+    return this.audioContext;
+  }
+
   public dispose(): void {
     if (this.engineOsc1) this.engineOsc1.stop();
     if (this.engineOsc2) this.engineOsc2.stop();

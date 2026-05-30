@@ -42,6 +42,10 @@ export { usePickups, usePickupsByType, useCoinCollection } from './hooks/usePick
 export { useEnvironment, useDayNightCycle } from './hooks/useEnvironment';
 export { usePlayerVehicle, useVehicleStats } from './hooks/usePlayerVehicle';
 export { useQuests, useQuestsByCategory, useActiveQuest, useQuestStats } from './hooks/useQuests';
+export { useFloatingOrigin } from './hooks/useFloatingOrigin';
+export { useGameLoopManager } from './hooks/useGameLoopManager';
+export { useGameOrchestrator } from './hooks/useGameOrchestrator';
+export { useVehicleCustomization } from './hooks/useVehicleCustomization';
 
 /* ─────────────────────────────────────────────
  * Components
@@ -67,6 +71,31 @@ export { StartScreen } from './components/StartScreen';
 export { PauseMenu } from './components/PauseMenu';
 export { CollisionManager } from './components/world/CollisionManager';
 export { ChunkRenderer } from './components/world/ChunkRenderer';
+export { CheckpointSystem } from './components/world/CheckpointSystem';
+export { DecorationBatchSystem } from './components/world/DecorationBatchSystem';
+export { DynamicObstacles } from './components/world/DynamicObstacles';
+export { GarageZone } from './components/world/GarageZone';
+export { HighwayChunkGenerator } from './components/world/HighwayChunkGenerator';
+export { HighwayNetworkSystem } from './components/world/HighwayNetworkSystem';
+export { LightingController } from './components/world/LightingController';
+export { ParallaxBackground } from './components/world/ParallaxBackground';
+export { ParallaxScenery } from './components/world/ParallaxScenery';
+export { PickupSystem as WorldPickupSystem } from './components/world/PickupSystem';
+export { PostProcessingPipeline } from './components/world/PostProcessingPipeline';
+export { QuestProgressTracker } from './components/world/QuestProgressTracker';
+export { RoadMarkingBatchSystem } from './components/world/RoadMarkingBatchSystem';
+export { RoadNetworkGenerator } from './components/world/RoadNetworkGenerator';
+export { RoadSignSystem } from './components/world/RoadSignSystem';
+export { TrafficAIController } from './components/world/TrafficAIController';
+export { TrafficBatchSystem } from './components/world/TrafficBatchSystem';
+export { WorldShopSpawner } from './components/world/WorldShopSpawner';
+export { WorldStreamManager } from './components/world/WorldStreamManager';
+export { AchievementPanel } from './components/ui/AchievementPanel';
+export { CrashOverlay } from './components/ui/CrashOverlay';
+export { MinimapRenderer } from './components/ui/MinimapRenderer';
+export { GPSNavigator } from './ui/GPSNavigator';
+export { ShopInteraction } from './ui/ShopInteraction';
+export { TutorialOverlay } from './ui/TutorialOverlay';
 
 /* ─────────────────────────────────────────────
  * Utils
@@ -97,11 +126,6 @@ export {
   crossProduct2D,
   normalize,
   generateId,
-  formatNumber,
-  formatDecimal,
-  formatSpeed,
-  formatDistance,
-  formatTime,
 } from './utils/math';
 export {
   worldToChunkCoords,
@@ -244,3 +268,16 @@ export { VFXManager } from './managers/VFXManager';
 export { PerformanceScaler } from './managers/PerformanceScaler';
 export { InputManager } from './managers/InputManager';
 export { SaveManager } from './managers/SaveManager';
+export { AchievementManager } from './managers/AchievementManager';
+export { MusicManager } from './managers/MusicManager';
+export { NotificationManager } from './managers/NotificationManager';
+export { StatsTracker } from './managers/StatsTracker';
+export { WeatherSystem } from './managers/WeatherSystem';
+export { DayNightCycle } from './systems/DayNightCycle';
+export {
+  DEFAULT_STATS,
+  UPGRADE_EFFECTS,
+  applyStatsToPhysics,
+  calculateEffectiveStats,
+} from './systems/VehicleUpgradeSystem';
+export type { VehicleStats } from './systems/VehicleUpgradeSystem';

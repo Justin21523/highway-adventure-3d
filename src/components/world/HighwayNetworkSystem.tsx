@@ -41,7 +41,7 @@ import {
  * ───────────────────────────────────────────── */
 
 const CHUNK_LENGTH = DRIVE_CHUNK_SIZE; // square chunk size in meters
-const LOAD_RADIUS = 3;                 // 7x7 active neighborhood around player
+const LOAD_RADIUS = 4;                 // 9x9 active neighborhood around player — larger explorable area
 const UNLOAD_RADIUS = LOAD_RADIUS + 2;
 
 // Road cross-section layout (X positions, centered on 0)
@@ -274,7 +274,9 @@ type Shared = ReturnType<typeof makeShared>;
 function buildTerrainBase(g: THREE.Group, shared: Shared) {
   const terrain = new THREE.Mesh(shared.geo.terrain, shared.mat.grass);
   terrain.rotation.x = -Math.PI / 2;
-  terrain.position.y = -0.06;
+  // Pull terrain down slightly more so it never Z-fights with road planes
+  // when distant chunks meet.
+  terrain.position.y = -0.12;
   terrain.receiveShadow = true;
   g.add(terrain);
 }
@@ -434,7 +436,10 @@ function addRoadSegment(
   const length = Math.hypot(dx, dz);
   if (length < 1) return;
 
-  const y = options.y ?? 0.01;
+  // Default Y is 0.04 (slightly above the main highway plane at 0.0) so secondary
+  // roads don't Z-fight with the main highway base. Pass options.y explicitly
+  // to override (e.g. ELEVATED_Y for elevated road segments).
+  const y = options.y ?? 0.04;
   const width = options.width;
   const yaw = Math.atan2(dx, dz);
   const segment = new THREE.Group();
@@ -442,6 +447,10 @@ function addRoadSegment(
   segment.rotation.y = yaw;
   parent.add(segment);
 
+  // Use exact-fit length (no overlap) — overlapping planes at the same Y
+  // create Z-fighting bands that ripple as the camera moves, which the user
+  // perceives as "ground shaking". Adjacent segments share an endpoint so
+  // exact fitting is gap-free.
   if (options.elevated) {
     addScaledBox(
       segment,
@@ -452,7 +461,7 @@ function addRoadSegment(
       0,
       width + 1.2,
       0.42,
-      length + 0.8,
+      length,
     );
   }
 
@@ -464,21 +473,21 @@ function addRoadSegment(
     options.elevated ? 0.03 : 0,
     0,
     width,
-    length + 0.6,
+    length,
   );
 
   const medianWidth = options.divided ? 1.25 : 0;
   if (options.divided) {
-    addScaledBox(segment, shared, shared.mat.concrete, 0, 0.3, 0, medianWidth, 0.6, length);
+    addScaledBox(segment, shared, shared.mat.concrete, 0, 0.3, 0, medianWidth, 0.6, length * 0.98);
     for (const sx of [-1, 1]) {
-      addScaledPlane(segment, shared, shared.mat.yellow, sx * (medianWidth / 2 + 0.25), 0.035, 0, 0.16, length * 0.96);
+      addScaledPlane(segment, shared, shared.mat.yellow, sx * (medianWidth / 2 + 0.25), 0.045, 0, 0.16, length * 0.9);
     }
   } else {
-    addScaledPlane(segment, shared, shared.mat.yellow, 0, 0.035, 0, 0.18, length * 0.92);
+    addScaledPlane(segment, shared, shared.mat.yellow, 0, 0.045, 0, 0.18, length * 0.88);
   }
 
   for (const sx of [-1, 1]) {
-    addScaledPlane(segment, shared, shared.mat.white, sx * (width / 2 - 0.75), 0.034, 0, 0.14, length * 0.95);
+    addScaledPlane(segment, shared, shared.mat.white, sx * (width / 2 - 0.75), 0.05, 0, 0.14, length * 0.92);
   }
 
   if (options.guardrails) {
@@ -889,9 +898,9 @@ function addRoadsideDecorations(g: THREE.Group, shared: Shared, cx: number, cz: 
   const { geo, mat } = shared;
 
   if (hasMainHighway) {
-    // Buildings: 2-4 per side, 25-55m away from the highway centerline.
+    // Buildings: 3-6 per side, 25-55m away from the highway centerline.
     for (const side of [-1, 1] as const) {
-      const count = 2 + Math.floor(rng() * 3);
+      const count = 3 + Math.floor(rng() * 4);
       for (let i = 0; i < count; i++) {
         const b = pickBuilding(rng, shared);
         const bx = side * (25 + rng() * 30);
@@ -905,7 +914,7 @@ function addRoadsideDecorations(g: THREE.Group, shared: Shared, cx: number, cz: 
       }
     }
   } else {
-    const blockBuildings = 2 + Math.floor(rng() * 3);
+    const blockBuildings = 4 + Math.floor(rng() * 4);
     for (let i = 0; i < blockBuildings; i++) {
       const b = pickBuilding(rng, shared);
       const bx = -CHUNK_LENGTH / 2 + 12 + rng() * (CHUNK_LENGTH - 24);
@@ -919,8 +928,8 @@ function addRoadsideDecorations(g: THREE.Group, shared: Shared, cx: number, cz: 
     }
   }
 
-  // ── Trees: 4-8 scattered in the grass area ──
-  const treeCount = 4 + Math.floor(rng() * 5);
+  // ── Trees: 6-11 scattered in the grass area ──
+  const treeCount = 6 + Math.floor(rng() * 6);
   for (let i = 0; i < treeCount; i++) {
     const side = rng() < 0.5 ? -1 : 1;
     const tx = side * (16 + rng() * 14); // 16-30 from centre (closer in than buildings)
@@ -944,6 +953,102 @@ function addRoadsideDecorations(g: THREE.Group, shared: Shared, cx: number, cz: 
     hill.castShadow = true;
     hill.receiveShadow = true;
     g.add(hill);
+  }
+
+  // ── Landmarks: billboards, water towers, statues, parks (1 per 4 chunks roughly) ──
+  if (Math.abs(cx * 23 + cz * 41) % 4 === 0) {
+    const lx = -CHUNK_LENGTH / 2 + 15 + rng() * (CHUNK_LENGTH - 30);
+    const lz = -CHUNK_LENGTH / 2 + 15 + rng() * (CHUNK_LENGTH - 30);
+    const variant = Math.floor(rng() * 4);
+    if (variant === 0) {
+      // Billboard
+      const pole = new THREE.Mesh(geo.signPole, mat.pole);
+      pole.position.set(lx, 4, lz);
+      pole.scale.set(1, 1.6, 1);
+      g.add(pole);
+      const board = new THREE.Mesh(
+        new THREE.PlaneGeometry(8, 4),
+        new THREE.MeshStandardMaterial({
+          color: '#fbbf24',
+          emissive: '#f59e0b',
+          emissiveIntensity: 0.7,
+          side: THREE.DoubleSide,
+        }),
+      );
+      board.position.set(lx, 8.5, lz);
+      board.rotation.y = rng() * Math.PI * 2;
+      g.add(board);
+    } else if (variant === 1) {
+      // Water tower
+      const legGeo = new THREE.CylinderGeometry(0.18, 0.18, 8, 6);
+      for (let k = 0; k < 4; k++) {
+        const angle = (k / 4) * Math.PI * 2;
+        const leg = new THREE.Mesh(legGeo, mat.steel);
+        leg.position.set(lx + Math.cos(angle) * 1.5, 4, lz + Math.sin(angle) * 1.5);
+        g.add(leg);
+      }
+      const tank = new THREE.Mesh(
+        new THREE.CylinderGeometry(2.5, 2.5, 4, 12),
+        new THREE.MeshStandardMaterial({ color: '#94a3b8', roughness: 0.5, metalness: 0.4 }),
+      );
+      tank.position.set(lx, 10, lz);
+      tank.castShadow = true;
+      g.add(tank);
+    } else if (variant === 2) {
+      // Park pavilion (raised platform with roof)
+      const platform = new THREE.Mesh(
+        new THREE.BoxGeometry(8, 0.3, 8),
+        new THREE.MeshStandardMaterial({ color: '#365314', roughness: 0.9 }),
+      );
+      platform.position.set(lx, 0.15, lz);
+      g.add(platform);
+      for (const sx of [-3.5, 3.5]) {
+        for (const sz of [-3.5, 3.5]) {
+          const pillar = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.18, 0.18, 3.4, 6),
+            mat.pole,
+          );
+          pillar.position.set(lx + sx, 1.7, lz + sz);
+          g.add(pillar);
+        }
+      }
+      const roof = new THREE.Mesh(
+        new THREE.ConeGeometry(6, 2.2, 4),
+        new THREE.MeshStandardMaterial({ color: '#b91c1c', roughness: 0.7 }),
+      );
+      roof.position.set(lx, 4.4, lz);
+      roof.rotation.y = Math.PI / 4;
+      g.add(roof);
+    } else {
+      // Statue: a tall pedestal with a sphere on top
+      const pedestal = new THREE.Mesh(
+        new THREE.BoxGeometry(1.6, 2.4, 1.6),
+        new THREE.MeshStandardMaterial({ color: '#a3a3a3', roughness: 0.5 }),
+      );
+      pedestal.position.set(lx, 1.2, lz);
+      g.add(pedestal);
+      const head = new THREE.Mesh(
+        new THREE.SphereGeometry(0.9, 16, 12),
+        new THREE.MeshStandardMaterial({ color: '#d4d4d8', metalness: 0.3, roughness: 0.4 }),
+      );
+      head.position.set(lx, 3.5, lz);
+      g.add(head);
+    }
+  }
+
+  // ── Extra streetlights in non-highway chunks ──
+  if (!hasMainHighway) {
+    const lampCount = 2 + Math.floor(rng() * 3);
+    for (let i = 0; i < lampCount; i++) {
+      const lx = -CHUNK_LENGTH / 2 + 10 + rng() * (CHUNK_LENGTH - 20);
+      const lz = -CHUNK_LENGTH / 2 + 10 + rng() * (CHUNK_LENGTH - 20);
+      const pole = new THREE.Mesh(geo.pole, mat.pole);
+      pole.position.set(lx, 3.5, lz);
+      g.add(pole);
+      const head = new THREE.Mesh(geo.head, mat.light);
+      head.position.set(lx, 7, lz);
+      g.add(head);
+    }
   }
 }
 
@@ -1103,7 +1208,7 @@ function addRingRoads(g: THREE.Group, shared: Shared, cx: number, cz: number) {
         if (!isMidpointInChunk(mid, cx, cz)) continue;
         addRoadSegment(g, shared, toLocal(p1, cx, cz), toLocal(p2, cx, cz), {
           width: anchor.elevated ? 18 : 15,
-          y: anchor.elevated ? ELEVATED_Y : 0.018,
+          y: anchor.elevated ? ELEVATED_Y : 0.05,
           elevated: anchor.elevated,
           divided: true,
           guardrails: anchor.elevated,

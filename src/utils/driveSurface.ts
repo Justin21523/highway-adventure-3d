@@ -73,12 +73,16 @@ export function driveRingAnchor(cellX: number, cellZ: number): DriveRingAnchor {
 export function getDriveChunkType(idx: number): DriveChunkType {
   const abs = Math.abs(idx);
   if (abs === 0) return 'STRAIGHT';
-  if (abs % 24 === 12) return 'OVERPASS';
-  if (abs % 16 === 8) return 'TOLL';
-  if (abs % 10 === 5) return 'ELEVATED_UP';
-  if (abs % 10 === 0) return 'ELEVATED_DOWN';
-  if (abs % 8 === 0) return 'RAMP_ON';
-  if (abs % 8 === 4) return 'RAMP_OFF';
+  // Big features placed first so the more-frequent ramp pattern doesn't override them.
+  if (abs % 28 === 14) return 'OVERPASS';
+  if (abs % 20 === 10) return 'TOLL';
+  // Elevated up/down ramps are now denser (every 6 chunks instead of 10) so
+  // the player encounters more "上下高架" transitions while driving.
+  if (abs % 6 === 3) return 'ELEVATED_UP';
+  if (abs % 6 === 0) return 'ELEVATED_DOWN';
+  // Surface on/off ramps spaced every 4 chunks (was 8).
+  if (abs % 4 === 2) return 'RAMP_ON';
+  if (abs % 4 === 1) return 'RAMP_OFF';
   return 'STRAIGHT';
 }
 

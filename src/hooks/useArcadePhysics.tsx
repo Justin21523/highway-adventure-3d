@@ -9,7 +9,7 @@ import { VEHICLE, ENGINE, DRIVETRAIN, DRIFT, PHYSICS, BOOST } from '../constants
 
 export function useArcadePhysics(vehicleRef: React.RefObject<THREE.Group>) {
   const speedRef = useRef(0);
-  const rpmRef = useRef(ENGINE.IDLE_RPM);
+  const rpmRef = useRef<number>(ENGINE.IDLE_RPM);
   const gearRef = useRef(1);
   const steerRef = useRef(0);
   const isDriftingRef = useRef(false);

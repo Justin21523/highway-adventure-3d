@@ -4,6 +4,8 @@ import { useWorldStore } from '@/stores/worldStore';
 import { useShopStore } from '@/stores/shopStore';
 import { SHOP_ITEM_ASSIGNMENTS, SHOP_NAMES } from '@/constants/shops';
 import type { Shop, ShopCategory } from '@/types/shop';
+import { zoneAtChunk } from '@/systems/ZoneManager';
+import type { ZoneType } from '@/types/core';
 
 const SHOP_CHUNK_SIZE = 100;
 const SHOP_RADIUS = 4;
@@ -77,35 +79,52 @@ function buildShop(
   };
 }
 
+/** How many storefronts a chunk gets, keyed off its district. */
+function shopCountForZone(zone: ZoneType, rng: () => number): number {
+  switch (zone) {
+    case 'cityCenter':
+      return 4 + Math.floor(rng() * 3); // 4-6 dense commercial
+    case 'suburban':
+      return 1 + Math.floor(rng() * 2); // 1-2 corner stores
+    case 'industrial':
+      return rng() < 0.4 ? 1 : 0;
+    case 'countryside':
+    default:
+      return rng() < 0.3 ? 1 : 0; // sparse roadside
+  }
+}
+
+/**
+ * Shops for a chunk, driven by the authoritative zone (ZoneManager) rather than
+ * hardcoded coordinates. Determinism is preserved via the same seeded rng — only
+ * the count/category branch on zone.
+ */
 function generateChunkShops(cx: number, cz: number): Shop[] {
   const rng = mulberry32(hash2(cx, cz, 5101));
   const shops: Shop[] = [];
   const centerX = cx * SHOP_CHUNK_SIZE;
   const centerZ = cz * SHOP_CHUNK_SIZE;
+  const zone = zoneAtChunk(cx, cz);
 
-  if (cx === 0 && Math.abs(cz) % 3 === 1) {
-    // Highway-side shops are now more frequent (every 3 chunks instead of every 4)
-    // and we spawn a pair on both sides when the chunk index aligns.
-    const sides = Math.abs(cz) % 6 === 1 ? [-1, 1] : [rng() < 0.5 ? -1 : 1];
-    sides.forEach((side, i) => {
+  if (zone === 'highway') {
+    // Highway corridor: an occasional gas/rest stop just off the deck.
+    if (rng() < 0.5) {
+      const side = rng() < 0.5 ? -1 : 1;
       const category = HIGHWAY_CATEGORIES[Math.floor(rng() * HIGHWAY_CATEGORIES.length)];
       shops.push(buildShop(
         cx,
         cz,
-        i,
+        0,
         category,
         centerX + side * (34 + rng() * 18),
         centerZ + (rng() - 0.5) * 48,
         rng,
       ));
-    });
+    }
     return shops;
   }
 
-  if (Math.abs(cx) < 1) return shops;
-
-  // Denser city blocks: 3-6 shops per non-highway chunk.
-  const count = 3 + Math.floor(rng() * 4);
+  const count = shopCountForZone(zone, rng);
   for (let i = 0; i < count; i++) {
     const category = CITY_CATEGORIES[Math.floor(rng() * CITY_CATEGORIES.length)];
     const edgeBias = rng() < 0.5 ? -1 : 1;

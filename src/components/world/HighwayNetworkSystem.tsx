@@ -35,6 +35,8 @@ import {
   type DriveAccessRamp,
   type DriveChunkType,
 } from '../../utils/driveSurface';
+import { zoneAtChunk } from '../../systems/ZoneManager';
+import type { ZoneType } from '../../types/core';
 
 /* ─────────────────────────────────────────────
  * Constants
@@ -893,7 +895,7 @@ function pickBuilding(rng: () => number, shared: Shared) {
  * Roadside decorations: buildings, trees, hills, cross streets
  * ───────────────────────────────────────────── */
 
-function addRoadsideDecorations(g: THREE.Group, shared: Shared, cx: number, cz: number, hasMainHighway: boolean) {
+function addRoadsideDecorations(g: THREE.Group, shared: Shared, cx: number, cz: number, hasMainHighway: boolean, zone: ZoneType) {
   const rng = mulberry32(hash2(cx, cz, 13));
   const { geo, mat } = shared;
 
@@ -913,7 +915,10 @@ function addRoadsideDecorations(g: THREE.Group, shared: Shared, cx: number, cz: 
         g.add(building);
       }
     }
-  } else {
+  } else if (zone === 'industrial') {
+    // Industrial pockets keep a block of generic buildings (warehouses/sheds).
+    // Commercial/residential/countryside get their structures from the shop and
+    // decoration systems (and the Stage-5 street grid), so no generic block here.
     const blockBuildings = 4 + Math.floor(rng() * 4);
     for (let i = 0; i < blockBuildings; i++) {
       const b = pickBuilding(rng, shared);
@@ -928,8 +933,8 @@ function addRoadsideDecorations(g: THREE.Group, shared: Shared, cx: number, cz: 
     }
   }
 
-  // ── Trees: 6-11 scattered in the grass area ──
-  const treeCount = 6 + Math.floor(rng() * 6);
+  // ── Trees: ambient greenery, suppressed in the dense commercial district ──
+  const treeCount = zone === 'cityCenter' ? 0 : 6 + Math.floor(rng() * 6);
   for (let i = 0; i < treeCount; i++) {
     const side = rng() < 0.5 ? -1 : 1;
     const tx = side * (16 + rng() * 14); // 16-30 from centre (closer in than buildings)
@@ -1605,6 +1610,8 @@ function buildChunk(cx: number, cz: number, shared: Shared): THREE.Group {
 
   buildTerrainBase(g, shared);
 
+  // The deck stays on the central spine (cx===0), which is always highway zone.
+  const zone = zoneAtChunk(cx, cz);
   const hasMainHighway = cx === 0;
   const type: ChunkType = getChunkType(cz);
 
@@ -1623,6 +1630,9 @@ function buildChunk(cx: number, cz: number, shared: Shared): THREE.Group {
     if (type === 'OVERPASS')       buildOverpass(g, shared);
     if (type === 'ELEVATED_UP')    buildElevatedRampUp(g, shared);
     if (type === 'ELEVATED_DOWN')  buildElevatedRampDown(g, shared);
+    // Decorative-only variety beside the straight deck (surface stays flat).
+    if (type === 'ROTATING_INTERCHANGE') buildOverpass(g, shared);
+    if (type === 'CURVE')          addCrossStreet(g, shared, hash2(cx, cz, 77));
 
     const isSpecial = type !== 'STRAIGHT';
     if (!isSpecial && Math.abs(cz) % CROSS_STREET_PERIOD === 3) {
@@ -1635,8 +1645,10 @@ function buildChunk(cx: number, cz: number, shared: Shared): THREE.Group {
   addElevatedNetwork(g, shared, cx, cz);
   addAccessRamps(g, shared, cx, cz);
 
-  // Always add deterministic city/roadside decorations per chunk.
-  addRoadsideDecorations(g, shared, cx, cz, hasMainHighway);
+  // Roadside structures, keyed off the authoritative zone so each district reads
+  // distinctly (commercial/residential get their structures from the shop and
+  // decoration systems instead of generic blocks here).
+  addRoadsideDecorations(g, shared, cx, cz, hasMainHighway, zone);
 
   return g;
 }

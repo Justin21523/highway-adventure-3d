@@ -18,6 +18,7 @@ import { WORLD, ROAD, HIGHWAY, CITY_ROAD, DECORATION, ZONE_DISTRIBUTION } from '
 import { ROAD_PRESETS } from '@/config/roadPresets';
 import { ITEM_CATALOG_MAP, SHOP_ITEM_ASSIGNMENTS, SHOP_COLORS, SHOP_NAMES } from '@/constants/shops';
 import { SeededRandom } from '@/utils/seedRandom';
+import { zoneAtChunk } from './ZoneManager';
 
 /* ─────────────────────────────────────────────
  * Types
@@ -86,7 +87,7 @@ export class WorldGenerator {
     const rng = createChunkRandom(cx, cz);
 
     // Determine zone type based on position and seed
-    const zone = this.determineZone(cx, cz, rng);
+    const zone = this.determineZone(cx, cz);
 
     // Generate chunk data
     const chunkData = this.generateChunkData(cx, cz, zone, rng);
@@ -117,27 +118,16 @@ export class WorldGenerator {
 
   /* ── Zone Determination ── */
 
-  /** Determine the zone type for a chunk based on its position */
-  private determineZone(cx: number, cz: number, rng: SeededRandom): ZoneType {
-    // Highway corridors run along the Z axis at specific X positions
-    const isHighwayCorridor = Math.abs(cx % 5) === 0;
-
-    // City centers cluster around the origin
-    const distFromCenter = Math.sqrt(cx * cx + cz * cz);
-    const isCityCenter = distFromCenter < 3;
-
-    // Suburban areas surround city centers
-    const isSuburban = distFromCenter < 6 && !isCityCenter;
-
-    if (isHighwayCorridor && !isCityCenter) return 'highway';
-    if (isCityCenter) return 'cityCenter';
-    if (isSuburban) return 'suburban';
-
-    // Industrial areas near highways but not in cities
-    if (isHighwayCorridor && distFromCenter >= 6) return 'industrial';
-
-    // Countryside for everything else
-    return 'countryside';
+  /**
+   * Determine the zone type for a chunk.
+   *
+   * Delegates to the single authoritative {@link zoneAtChunk} (ZoneManager) so that
+   * activeChunks.zone, the rendered systems (road/shops/decorations/NPCs), the quest
+   * system, and the minimap all agree on one deterministic district layout. The local
+   * radial heuristic that used to live here has been removed.
+   */
+  private determineZone(cx: number, cz: number): ZoneType {
+    return zoneAtChunk(cx, cz);
   }
 
   /* ── Chunk Data Generation ── */

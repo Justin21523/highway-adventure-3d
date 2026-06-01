@@ -17,6 +17,8 @@ import * as THREE from 'three';
 import { useFrame as useR3FFrame } from '@react-three/fiber';
 import { useWorldStore } from '@/stores/worldStore';
 import { WORLD } from '@/constants/world';
+import { zoneAtChunk } from '@/systems/ZoneManager';
+import type { ZoneType } from '@/types/core';
 
 /* ─────────────────────────────────────────────
  * Constants
@@ -24,16 +26,31 @@ import { WORLD } from '@/constants/world';
 
 const TREE_SPACING = 15;
 const ROCK_SPACING = 25;
+const HOUSE_SPACING = 22;
 const MAX_TREES_PER_CHUNK = 50;
 const MAX_ROCKS_PER_CHUNK = 30;
 const MAX_SIGNS_PER_CHUNK = 10;
+const MAX_HOUSES_PER_CHUNK = 24;
+
+/**
+ * Per-zone tree placement probability. Highway corridor and dense commercial
+ * blocks suppress trees (road/shops dominate); residential keeps a few; general
+ * countryside is the leafy default.
+ */
+const TREE_CHANCE_BY_ZONE: Record<ZoneType, number> = {
+  highway: 0,
+  cityCenter: 0,
+  suburban: 0.12,
+  industrial: 0.08,
+  countryside: 0.32,
+};
 
 /* ─────────────────────────────────────────────
  * Types
  * ───────────────────────────────────────────── */
 
 interface DecorationConfig {
-  type: 'tree' | 'rock' | 'sign';
+  type: 'tree' | 'rock' | 'sign' | 'house';
   position: THREE.Vector3;
   scale: THREE.Vector3;
   rotation: number;
@@ -51,6 +68,8 @@ export function DecorationBatchSystem() {
   const treeFoliageMeshRef = useRef<THREE.InstancedMesh | null>(null);
   const rockMeshRef = useRef<THREE.InstancedMesh | null>(null);
   const signMeshRef = useRef<THREE.InstancedMesh | null>(null);
+  const houseMeshRef = useRef<THREE.InstancedMesh | null>(null);
+  const roofMeshRef = useRef<THREE.InstancedMesh | null>(null);
 
   // Decoration data
   const decorationsRef = useRef<Map<string, DecorationConfig[]>>(new Map());
@@ -64,6 +83,10 @@ export function DecorationBatchSystem() {
     treeFoliage: new THREE.SphereGeometry(1.5, 8, 6),
     rock: new THREE.DodecahedronGeometry(0.8, 2),
     sign: new THREE.BoxGeometry(0.1, 1.5, 1),
+    // Unit-cube body so per-house scale controls real dimensions.
+    house: new THREE.BoxGeometry(1, 1, 1),
+    // Low pyramid roof (4-sided cone) sitting on top of the body.
+    roof: new THREE.ConeGeometry(0.8, 0.6, 4),
   }), []);
 
   // Shared materials
@@ -72,6 +95,8 @@ export function DecorationBatchSystem() {
     treeFoliage: new THREE.MeshStandardMaterial({ color: 0x228B22, roughness: 0.8 }),
     rock: new THREE.MeshStandardMaterial({ color: 0x808080, roughness: 0.7 }),
     sign: new THREE.MeshStandardMaterial({ color: 0xFFD700, metalness: 0.3, roughness: 0.5 }),
+    house: new THREE.MeshStandardMaterial({ color: 0xC2A878, roughness: 0.85 }),
+    roof: new THREE.MeshStandardMaterial({ color: 0x8B5A3C, roughness: 0.8 }),
   }), []);
 
   /**
@@ -87,38 +112,75 @@ export function DecorationBatchSystem() {
     const seed = hashChunkId(chunkId);
     const rng = seededRandom(seed);
 
-    // Generate trees
-    for (let x = -halfChunk + TREE_SPACING; x < halfChunk; x += TREE_SPACING * 2) {
-      for (let z = -halfChunk + TREE_SPACING; z < halfChunk; z += TREE_SPACING * 2) {
-        if (rng() > 0.3) continue; // 30% chance to place tree
+    // Authoritative district drives what this chunk grows.
+    const zone = zoneAtChunk(cx, cz);
+    const treeChance = TREE_CHANCE_BY_ZONE[zone];
 
-        const treeX = worldX + x + (rng() - 0.5) * 5;
-        const treeZ = worldZ + z + (rng() - 0.5) * 5;
-        const treeScale = 0.8 + rng() * 0.4;
+    // Generate trees (density per zone; 0 ⇒ none on highway/commercial)
+    let treeCount = 0;
+    if (treeChance > 0) {
+      for (let x = -halfChunk + TREE_SPACING; x < halfChunk; x += TREE_SPACING * 2) {
+        for (let z = -halfChunk + TREE_SPACING; z < halfChunk; z += TREE_SPACING * 2) {
+          if (treeCount >= MAX_TREES_PER_CHUNK) break;
+          if (rng() > treeChance) continue;
 
-        decorations.push({
-          type: 'tree',
-          position: new THREE.Vector3(treeX, 0, treeZ),
-          scale: new THREE.Vector3(treeScale, treeScale, treeScale),
-          rotation: rng() * Math.PI * 2,
-        });
+          const treeX = worldX + x + (rng() - 0.5) * 5;
+          const treeZ = worldZ + z + (rng() - 0.5) * 5;
+          const treeScale = 0.8 + rng() * 0.4;
+
+          decorations.push({
+            type: 'tree',
+            position: new THREE.Vector3(treeX, 0, treeZ),
+            scale: new THREE.Vector3(treeScale, treeScale, treeScale),
+            rotation: rng() * Math.PI * 2,
+          });
+          treeCount++;
+        }
       }
     }
 
-    // Generate rocks
-    for (let i = 0; i < MAX_ROCKS_PER_CHUNK; i++) {
-      if (rng() > 0.2) continue;
+    // Generate houses — residential blocks only, laid out on a loose grid set
+    // back from the chunk centre so they don't sit on the road spine.
+    if (zone === 'suburban') {
+      let houseCount = 0;
+      for (let x = -halfChunk + HOUSE_SPACING; x < halfChunk && houseCount < MAX_HOUSES_PER_CHUNK; x += HOUSE_SPACING) {
+        for (let z = -halfChunk + HOUSE_SPACING; z < halfChunk && houseCount < MAX_HOUSES_PER_CHUNK; z += HOUSE_SPACING) {
+          if (rng() > 0.55) continue;
 
-      const rockX = worldX + (rng() - 0.5) * WORLD.CHUNK_SIZE;
-      const rockZ = worldZ + (rng() - 0.5) * WORLD.CHUNK_SIZE;
-      const rockScale = 0.5 + rng() * 1.0;
+          const hx = worldX + x + (rng() - 0.5) * 4;
+          const hz = worldZ + z + (rng() - 0.5) * 4;
+          const w = 6 + rng() * 3;
+          const d = 6 + rng() * 3;
+          const h = 4 + rng() * 3;
 
-      decorations.push({
-        type: 'rock',
-        position: new THREE.Vector3(rockX, 0.3, rockZ),
-        scale: new THREE.Vector3(rockScale, rockScale * 0.6, rockScale),
-        rotation: rng() * Math.PI * 2,
-      });
+          decorations.push({
+            type: 'house',
+            position: new THREE.Vector3(hx, 0, hz),
+            scale: new THREE.Vector3(w, h, d),
+            // Quantize yaw to right angles so houses look street-aligned.
+            rotation: Math.floor(rng() * 4) * (Math.PI / 2),
+          });
+          houseCount++;
+        }
+      }
+    }
+
+    // Generate rocks — only in open natural zones (and never rendered on roads)
+    if (zone === 'countryside' || zone === 'industrial') {
+      for (let i = 0; i < MAX_ROCKS_PER_CHUNK; i++) {
+        if (rng() > 0.2) continue;
+
+        const rockX = worldX + (rng() - 0.5) * WORLD.CHUNK_SIZE;
+        const rockZ = worldZ + (rng() - 0.5) * WORLD.CHUNK_SIZE;
+        const rockScale = 0.5 + rng() * 1.0;
+
+        decorations.push({
+          type: 'rock',
+          position: new THREE.Vector3(rockX, 0.3, rockZ),
+          scale: new THREE.Vector3(rockScale, rockScale * 0.6, rockScale),
+          rotation: rng() * Math.PI * 2,
+        });
+      }
     }
 
     // Generate signs
@@ -191,7 +253,50 @@ export function DecorationBatchSystem() {
     // Mark for update
     treeTrunkMeshRef.current.instanceMatrix.needsUpdate = true;
     treeFoliageMeshRef.current.instanceMatrix.needsUpdate = true;
-  }, []);
+
+    // ── Houses (body + roof) ──
+    if (houseMeshRef.current && roofMeshRef.current) {
+      const allHouses: DecorationConfig[] = [];
+      for (const [, decorations] of decorationsRef.current) {
+        for (const deco of decorations) {
+          if (deco.type === 'house') allHouses.push(deco);
+        }
+      }
+
+      const maxHouses = MAX_HOUSES_PER_CHUNK * 4;
+      const houseCount = Math.min(allHouses.length, maxHouses);
+
+      for (let i = 0; i < houseCount; i++) {
+        const house = allHouses[i];
+        const { x: w, y: h, z: d } = house.scale;
+
+        // Body: unit cube scaled to (w,h,d), resting on the ground.
+        dummyRef.position.set(house.position.x, h / 2, house.position.z);
+        dummyRef.scale.set(w, h, d);
+        dummyRef.rotation.set(0, house.rotation, 0);
+        dummyRef.updateMatrix();
+        houseMeshRef.current.setMatrixAt(i, dummyRef.matrix);
+
+        // Roof: square pyramid sitting on top of the body.
+        dummyRef.position.set(house.position.x, h + 0.75, house.position.z);
+        dummyRef.scale.set(w / 1.5, 2.5, d / 1.5);
+        dummyRef.rotation.set(0, house.rotation + Math.PI / 4, 0);
+        dummyRef.updateMatrix();
+        roofMeshRef.current.setMatrixAt(i, dummyRef.matrix);
+      }
+
+      for (let i = houseCount; i < maxHouses; i++) {
+        dummyRef.position.set(0, 0, 0);
+        dummyRef.scale.set(0, 0, 0);
+        dummyRef.updateMatrix();
+        houseMeshRef.current.setMatrixAt(i, dummyRef.matrix);
+        roofMeshRef.current.setMatrixAt(i, dummyRef.matrix);
+      }
+
+      houseMeshRef.current.instanceMatrix.needsUpdate = true;
+      roofMeshRef.current.instanceMatrix.needsUpdate = true;
+    }
+  }, [dummyRef]);
 
   // Initialize InstancedMesh
   useEffect(() => {
@@ -235,6 +340,25 @@ export function DecorationBatchSystem() {
     signMesh.castShadow = true;
     signMeshRef.current = signMesh;
 
+    // Houses (body + roof)
+    const maxHouses = MAX_HOUSES_PER_CHUNK * 4;
+    const houseMesh = new THREE.InstancedMesh(
+      geometriesRef.house,
+      materialsRef.house,
+      maxHouses,
+    );
+    houseMesh.castShadow = true;
+    houseMesh.receiveShadow = true;
+    houseMeshRef.current = houseMesh;
+
+    const roofMesh = new THREE.InstancedMesh(
+      geometriesRef.roof,
+      materialsRef.roof,
+      maxHouses,
+    );
+    roofMesh.castShadow = true;
+    roofMeshRef.current = roofMesh;
+
     // Initialize all as invisible
     for (let i = 0; i < maxTrees; i++) {
       dummyRef.position.set(0, 0, 0);
@@ -243,20 +367,33 @@ export function DecorationBatchSystem() {
       treeTrunkMesh.setMatrixAt(i, dummyRef.matrix);
       treeFoliageMesh.setMatrixAt(i, dummyRef.matrix);
     }
+    for (let i = 0; i < maxHouses; i++) {
+      dummyRef.position.set(0, 0, 0);
+      dummyRef.scale.set(0, 0, 0);
+      dummyRef.updateMatrix();
+      houseMesh.setMatrixAt(i, dummyRef.matrix);
+      roofMesh.setMatrixAt(i, dummyRef.matrix);
+    }
 
     treeTrunkMesh.instanceMatrix.needsUpdate = true;
     treeFoliageMesh.instanceMatrix.needsUpdate = true;
+    houseMesh.instanceMatrix.needsUpdate = true;
+    roofMesh.instanceMatrix.needsUpdate = true;
 
     groupRef.current.add(treeTrunkMesh);
     groupRef.current.add(treeFoliageMesh);
     groupRef.current.add(rockMesh);
     groupRef.current.add(signMesh);
+    groupRef.current.add(houseMesh);
+    groupRef.current.add(roofMesh);
 
     return () => {
       treeTrunkMesh.dispose();
       treeFoliageMesh.dispose();
       rockMesh.dispose();
       signMesh.dispose();
+      houseMesh.dispose();
+      roofMesh.dispose();
     };
   }, [geometriesRef, materialsRef, dummyRef]);
 

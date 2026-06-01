@@ -16,8 +16,18 @@ import {
   type DriveChunkType,
 } from '../../utils/driveSurface';
 import type { RoadSegment } from '../../types/world';
+import { zoneAtChunk, zoneColor } from '../../systems/ZoneManager';
+import type { ZoneType } from '../../types/core';
 
 type MapMode = 'follow' | 'north';
+
+/** Compact zone-legend entries (short labels keep the panel uncluttered). */
+const ZONE_LEGEND: ReadonlyArray<readonly [ZoneType, string]> = [
+  ['highway', '高速'],
+  ['cityCenter', '商家'],
+  ['suburban', '住宅'],
+  ['countryside', '一般'],
+];
 
 const PANEL_SIZE = 216;
 const WORLD_SCALE = 0.24;
@@ -180,6 +190,7 @@ function drawMap(ctx: CanvasRenderingContext2D, mode: MapMode, zoom: number) {
   if (mode === 'follow') ctx.rotate(-heading);
   ctx.scale(scale, scale);
 
+  drawZoneFill(ctx, x, z);
   drawRoadSurfaceNetwork(ctx, x, z);
   drawWorldStoreRoads(ctx, x, z);
   drawSpecialRoadStateLabels(ctx, x, z);
@@ -187,8 +198,32 @@ function drawMap(ctx: CanvasRenderingContext2D, mode: MapMode, zoom: number) {
   ctx.restore();
 
   drawLegend(ctx);
+  drawZoneLegend(ctx);
   drawCompass(ctx, heading, mode);
   drawPlayerArrow(ctx, center);
+}
+
+/**
+ * Tint each 100m chunk cell with its district color (low alpha, under the roads)
+ * so the player can read the world's zoning at a glance. Cells are centred on
+ * cx*100 to match the rendered chunk footprint.
+ */
+function drawZoneFill(ctx: CanvasRenderingContext2D, playerX: number, playerZ: number) {
+  const pcx = Math.round(playerX / DRIVE_CHUNK_SIZE);
+  const pcz = Math.round(playerZ / DRIVE_CHUNK_SIZE);
+  const half = DRIVE_CHUNK_SIZE / 2;
+
+  ctx.save();
+  ctx.globalAlpha = 0.18;
+  for (let cx = pcx - 7; cx <= pcx + 7; cx++) {
+    for (let cz = pcz - 7; cz <= pcz + 7; cz++) {
+      ctx.fillStyle = zoneColor(zoneAtChunk(cx, cz));
+      const ox = cx * DRIVE_CHUNK_SIZE - playerX;
+      const oz = cz * DRIVE_CHUNK_SIZE - playerZ;
+      ctx.fillRect(ox - half, oz - half, DRIVE_CHUNK_SIZE, DRIVE_CHUNK_SIZE);
+    }
+  }
+  ctx.restore();
 }
 
 function drawBackground(ctx: CanvasRenderingContext2D) {
@@ -456,6 +491,21 @@ function drawLegend(ctx: CanvasRenderingContext2D) {
     ctx.fillRect(x, y - 7, 12, 4);
     ctx.fillStyle = 'rgba(203, 213, 225, 0.85)';
     ctx.fillText(label, x + 15, y - 3);
+  });
+}
+
+function drawZoneLegend(ctx: CanvasRenderingContext2D) {
+  ctx.font = 'bold 9px system-ui';
+  ctx.textAlign = 'left';
+  const y = PANEL_SIZE - 22;
+  ZONE_LEGEND.forEach(([zone, label], i) => {
+    const x = 8 + i * 50;
+    ctx.globalAlpha = 0.85;
+    ctx.fillStyle = zoneColor(zone);
+    ctx.fillRect(x, y - 7, 12, 7);
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = 'rgba(203, 213, 225, 0.9)';
+    ctx.fillText(label, x + 15, y - 1);
   });
 }
 

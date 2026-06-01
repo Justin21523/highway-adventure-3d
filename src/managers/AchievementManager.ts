@@ -7,6 +7,7 @@
  */
 
 import { useGameStore } from '../stores/gameStore';
+import { NotificationManager } from './NotificationManager';
 
 export type Achievement = {
   id: string;
@@ -172,6 +173,12 @@ export class AchievementManager {
         if (ach.reward.coins) useGameStore.getState().addCoins(ach.reward.coins);
         if (ach.reward.xp) useGameStore.getState().addXp(ach.reward.xp);
         if (ach.reward.item) useGameStore.getState().addItemToInventory(ach.reward.item);
+        // Celebrate with a toast.
+        NotificationManager.getInstance().achievementUnlocked(
+          ach.title,
+          ach.reward.coins ? `+${ach.reward.coins}🪙` : 'Unlocked',
+        );
+        useGameStore.getState().addReputation(15);
         changed = true;
       }
     });

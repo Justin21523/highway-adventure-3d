@@ -25,6 +25,7 @@ export function PlayerVehicle({ vehicleRef }: PlayerVehicleProps = {}) {
   const groupRef = vehicleRef ?? internalRef;
   const wheelRefs = useRef<THREE.Mesh[]>([]);
   const headlightRefs = useRef<THREE.Mesh[]>([]);
+  const paintColor = useGameStore((s) => s.vehicle.paintColor ?? '#e63946');
 
   // Vehicle geometry (memoized to prevent recreation)
   const { bodyGeo, cabinGeo, wheelGeo, headlightGeo } = useMemo(() => ({
@@ -78,9 +79,9 @@ export function PlayerVehicle({ vehicleRef }: PlayerVehicleProps = {}) {
 
   return (
     <group ref={groupRef}>
-      {/* Vehicle body */}
+      {/* Vehicle body (paint from the garage) */}
       <mesh geometry={bodyGeo} position={[0, 0, 0]}>
-        <meshStandardMaterial color="#e63946" metalness={0.6} roughness={0.3} />
+        <meshStandardMaterial color={paintColor} metalness={0.6} roughness={0.3} />
       </mesh>
 
       {/* Vehicle cabin */}

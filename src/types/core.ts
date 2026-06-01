@@ -115,6 +115,10 @@ export interface IPlayerProfile {
   totalCoinsCollected: number;
   totalQuestsCompleted: number;
   xpToNext: number;
+  /** Driver rank (derived from reputation milestones). */
+  rank: number;
+  /** Reputation earned from quests & activities; drives rank. */
+  reputation: number;
 }
 
 /* ── Vehicle State (backward-compatible alias) ── */
@@ -129,6 +133,8 @@ export interface IVehicleState {
   rotation: Vector3Data;
   velocity: Vector3Data;
   speed: number;
+  /** Top speed cap in km/h (used by physics clamp, HUD speedometer, garage). */
+  maxSpeed: number;
   rpm: number;
   gear: number;
   health: number;
@@ -136,7 +142,18 @@ export interface IVehicleState {
   fuel: number;
   isDrifting: boolean;
   isBoosting: boolean;
+  /** Remaining boost time in seconds. */
+  boostTimer: number;
+  /** Current front-wheel steer angle in degrees (drives turning). */
+  steerAngle: number;
   slipAngle: number;
+  headingAngle?: number;
+  /** Body paint color (hex), set in the garage. */
+  paintColor: string;
+  /** Acceleration multiplier from the equipped vehicle + upgrades (≈1.0). */
+  accelMult: number;
+  /** Handling/steer multiplier from the equipped vehicle + upgrades (≈1.0). */
+  handlingMult: number;
 }
 
 export type VehicleState = IVehicleState;
@@ -170,36 +187,50 @@ export interface IPerformanceMetrics {
   qualityTier: 'low' | 'medium' | 'high' | 'ultra';
 }
 
+export type IQuestStatus = 'completed' | 'progressed' | 'idled' | 'active' 
 /* ── Quest (backward-compatible alias) ── */
 
 /**
  * Quest definition used by gameStore.
  * Alias for the quest shape referenced by SaveManager and hooks.
  */
+// IQuest interface - ensure field names match implementation
 export interface IQuest {
-  id: string;
+  id: string;                    // ✅ Use 'id' not 'questId'
   title: string;
   description: string;
-  category: string;
-  objectives: IQuestObjective[];
-  reward: { coins: number; xp: number; items: string[] };
+  category: QuestCategory;
+  objectives: QuestObjective[];
+  rewards: QuestReward;          // ✅ Use 'rewards' (plural) not 'reward'
   prerequisites: string[];
   levelRequirement: number;
+  startTime?: number;
+  timeLimitSeconds: number;
+  elapsedSeconds?: number;
+  isRepeatable: boolean;
+  giverName: string;
+  giverShopId?: string;
+  chunkId?: string;
+  status?: IQuestStatus;
 }
+
 
 /**
  * Quest objective used by gameStore.
  * Alias for the objective shape referenced by useQuestManager.
  */
-export interface IQuestObjective {
+// QuestObjective - ensure all optional fields are properly typed
+export interface QuestObjective {
   id: string;
-  type: string;
+  type: ObjectiveType;
   description: string;
   target: number;
   current: number;
   isCompleted: boolean;
-  location?: Vector3Data;
+  location?: IVec3;              // ✅ Use IVec3 not Vector3Data
   radius?: number;
+  itemId?: string;
+  shopId?: string;
 }
 
 /* ── Economy Item (backward-compatible alias) ── */
@@ -216,4 +247,119 @@ export interface IEconomyItem {
   category: string;
   iconUrl: string;
   stats?: Record<string, number>;
+}
+
+
+// ============================================================================
+// QUEST SYSTEM TYPES
+// ============================================================================
+
+export type QuestStatus = 'available' | 'active' | 'completed' | 'failed' | 'expired';
+
+export type ObjectiveType =
+  | 'reachLocation'
+  | 'collectCoins'
+  | 'collectItem'
+  | 'deliverItem'
+  | 'visitShop'
+  | 'driftDistance'
+  | 'reachSpeed'
+  | 'driveDistance'
+  | 'destroyObstacle'
+  | 'interactWithNpc'
+  | 'timeTrial'
+  | 'distance_traveled'
+  | 'top_speed'
+
+export type QuestCategory = 
+  | 'main' 
+  | 'side' 
+  | 'daily' 
+  | 'exploration' 
+  | 'delivery' 
+  | 'challenge' 
+  | 'tour';
+  
+export interface QuestObjective {
+  id: string;
+  type: ObjectiveType;
+  description: string;
+  target: number;
+  current: number;
+  isCompleted: boolean;
+  location?: IVec3;
+  radius?: number;
+  itemId?: string;
+  shopId?: string;
+}
+
+export interface QuestReward {
+  coins: number;
+  xp: number;
+  items: string[];
+  unlockVehicle?: string;
+  unlockShop?: string;
+  title?: string;
+}
+
+export interface Quest {
+  id: string;
+  title: string;
+  description: string;
+  category: QuestCategory;
+  objectives: QuestObjective[];
+  rewards: QuestReward;
+  prerequisites: string[];
+  levelRequirement: number;
+  timeLimitSeconds: number;
+  isRepeatable: boolean;
+  giverName: string;
+  giverShopId?: string;
+  chunkId?: string;
+}
+
+// ActiveQuest - also use 'id' for consistency
+export interface ActiveQuest {
+  id: string;                    // ✅ Same as IQuest.id
+  title: string;
+  description: string;
+  category: QuestCategory;
+  objectives: QuestObjective[];
+  rewards: QuestReward;
+  timeLimitSeconds: number;
+  startTime: number;
+  elapsedSeconds: number;
+  status: QuestStatus;
+}
+
+
+export interface QuestStats {
+  totalCompleted: number;
+  totalFailed: number;
+  totalDriftDistance: number;
+  totalTopSpeedReached: number;
+  totalPickupsCollected: number;
+  categoryCompleted: Record<QuestCategory, number>;
+}
+
+export type InteractionTargetType = 'npc' | 'shop' | 'garage' | 'pickup' | 'obstacle';
+
+export interface InteractionTarget {
+  type: InteractionTargetType;
+  id: string;
+  name: string;
+  position?: IVec3;
+  radius?: number;
+}
+
+export interface InputState {
+  forward: boolean;
+  backward: boolean;
+  left: boolean;
+  right: boolean;
+  handbrake: boolean;
+  boost: boolean;
+  interact: boolean;
+  quest: boolean;
+  pause: boolean;
 }

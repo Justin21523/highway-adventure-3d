@@ -1,9 +1,17 @@
 // src/managers/SaveManager.ts
 import { useGameStore } from '../stores/gameStore';
-import { IPlayerProfile } from '../types/core';
-import type { Quest } from '../types/quest';
+import { IPlayerProfile, IQuest } from '../types/core';
 
 const SAVE_KEY = 'highway_adventure_save_v1';
+
+/**
+ * Save schema version. Bump when persisted data becomes incompatible.
+ * v2: quest objective locations migrated from 60m road grid to 100m zone grid.
+ * v3: gameplay-expansion fields added (profile.rank/reputation, vehicle stat
+ *     multipliers/paint). Saves older than v3 are dropped entirely so progress
+ *     starts fresh on incompatible data (no migration, by design).
+ */
+const SAVE_VERSION = 3;
 
 export class SaveManager {
   private static instance: SaveManager | null = null;
@@ -30,17 +38,23 @@ export class SaveManager {
       if (!raw) return;
 
       const data = JSON.parse(raw);
+
+      // Incompatible (older) save → start fresh. No migration, by design.
+      if ((data.version ?? 1) < SAVE_VERSION) return;
+
       const store = useGameStore.getState();
-      
+
       if (data.profile) {
         const safeProfile: IPlayerProfile = { ...store.profile, ...data.profile };
         safeProfile.inventory = Array.isArray(safeProfile.inventory) ? safeProfile.inventory : [];
-        safeProfile.unlockedVehicles = Array.isArray(safeProfile.unlockedVehicles) ? safeProfile.unlockedVehicles : ['veh_sedan_01', 'veh_sports_01'];
+        safeProfile.unlockedVehicles = Array.isArray(safeProfile.unlockedVehicles) ? safeProfile.unlockedVehicles : ['sedan_basic', 'sports_red'];
         useGameStore.setState({ profile: safeProfile });
+        // Re-equip so vehicle stat multipliers/maxSpeed match the loaded car.
+        useGameStore.getState().equipVehicle(safeProfile.equippedVehicle);
       }
-      
+
       if (Array.isArray(data.availableQuests)) {
-        useGameStore.setState({ availableQuests: data.availableQuests as Quest[] });
+        useGameStore.setState({ availableQuests: data.availableQuests as IQuest[] });
       }
     } catch (e) {
       console.warn('SaveManager: Failed to load save data. Starting fresh.', e);
@@ -51,6 +65,7 @@ export class SaveManager {
     try {
       const state = useGameStore.getState();
       const data = {
+        version: SAVE_VERSION,
         profile: {
           id: state.profile.id,
           coins: state.profile.coins,
@@ -58,7 +73,9 @@ export class SaveManager {
           xp: state.profile.xp,
           inventory: state.profile.inventory,
           unlockedVehicles: state.profile.unlockedVehicles,
-          equippedVehicle: state.profile.equippedVehicle
+          equippedVehicle: state.profile.equippedVehicle,
+          rank: state.profile.rank,
+          reputation: state.profile.reputation
         },
         availableQuests: state.availableQuests,
         timestamp: Date.now()

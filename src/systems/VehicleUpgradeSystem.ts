@@ -7,6 +7,7 @@
  */
 
 import { VEHICLE, ENGINE, DRIVETRAIN, DRIFT } from '../constants/physics';
+import { VEHICLE_CONFIG_MAP } from '../constants/vehicles';
 
 export type VehicleStats = {
   topSpeed: number;
@@ -73,6 +74,41 @@ export function calculateEffectiveStats(ownedItems: string[]): VehicleStats {
   stats.driftGrip = Math.max(0.5, Math.min(2.0, stats.driftGrip));
   
   return stats;
+}
+
+/**
+ * Effective in-game vehicle stats = the equipped vehicle's config base combined
+ * with owned upgrade parts, mapped to the runtime fields VehiclePhysics consumes
+ * (vehicle.maxSpeed in km/h, plus acceleration/handling multipliers around 1.0).
+ * This is what makes different cars + upgrades actually feel different to drive.
+ */
+export function effectiveVehicleStats(configId: string, ownedItems: string[]): {
+  maxSpeed: number;
+  accelMult: number;
+  handlingMult: number;
+  fuelCapacity: number;
+} {
+  const cfg = VEHICLE_CONFIG_MAP[configId];
+  let topSpeed = cfg?.topSpeed ?? 180;
+  let accel = cfg?.acceleration ?? 6;       // ~4-10 design scale
+  let handling = cfg?.handling ?? 7;        // ~5-9 design scale
+  let fuelCapacity = cfg?.fuelCapacity ?? 50;
+
+  for (const item of ownedItems) {
+    const e = UPGRADE_EFFECTS[item];
+    if (!e) continue;
+    if (e.topSpeed) topSpeed += e.topSpeed;               // additive km/h
+    if (e.acceleration) accel += e.acceleration * 10;     // 0.15 delta → +1.5 on the scale
+    if (e.handling) handling += e.handling * 10;
+    if (e.fuelCapacity) fuelCapacity += e.fuelCapacity;
+  }
+
+  return {
+    maxSpeed: Math.max(120, Math.min(360, topSpeed)),
+    accelMult: Math.max(0.7, Math.min(1.8, accel / 6)),     // sedan(6)=1.0, sports(9)=1.5
+    handlingMult: Math.max(0.7, Math.min(1.6, handling / 7)),
+    fuelCapacity: Math.max(40, Math.min(120, fuelCapacity)),
+  };
 }
 
 /**

@@ -1,110 +1,169 @@
-/**
- * Core game state store.
- *
- * Manages player profile, game mode transitions, and active quest reference.
- * Vehicle state, world state, traffic state, shop state, quest state, and
- * performance state live in their own dedicated stores to keep each store
- * small and focused.
- *
- * This file replaces the old monolithic store at src/store/gameStore.ts.
- * The old file is kept for backward compatibility during migration.
- */
+// src/store/gameStore.ts - COMPLETE FIXED VERSION
 
 import { create } from 'zustand';
-import type { GameMode } from '@/types/core';
-import type { Quest, ActiveQuest } from '@/types/quest';
-import { xpForLevel, totalXpForLevel, levelFromXp } from '@/constants/economy';
-import type * as THREE from 'three';
+import * as THREE from 'three';
+import {
+  IPlayerProfile, IQuest, IVehicleState, IPerformanceMetrics,
+  GameMode, IVec3, InputState, InteractionTarget, QuestStats,
+  QuestObjective, QuestCategory, Controls
+} from '../types/core';
+import { effectiveVehicleStats } from '../systems/VehicleUpgradeSystem';
+import { VEHICLE_CONFIG_MAP } from '../constants/vehicles';
 
-/* ─────────────────────────────────────────────
- * Types
- * ───────────────────────────────────────────── */
+/** Reputation needed per rank step. */
+const REP_PER_RANK = 500;
 
-/** Player profile persisted across sessions */
-export interface PlayerProfile {
-  id: string;
-  name: string;
-  level: number;
-  xp: number;
-  coins: number;
-  inventory: string[];
-  equippedVehicle: string;
-  unlockedVehicles: string[];
-  totalDistanceTraveled: number;
-  totalCoinsCollected: number;
-  totalQuestsCompleted: number;
-  xpToNext: number;
-}
+// Helper for XP calculation
+const xpForLevel = (level: number): number => 1000 + (level - 1) * 500;
 
-/** Vehicle state shape (simplified for UI) */
-export interface VehicleState {
-  position: PlayerPosition;
-  rotation: PlayerPosition;
-  velocity: PlayerPosition;
-  speed: number;
-  maxSpeed: number;
-  rpm: number;
-  gear: number;
-  fuel: number;
-  health: number;
-  maxHealth: number;
-  isDrifting: boolean;
-  isBoosting: boolean;
-  boostTimer: number;
-  steerAngle: number;
-  headingAngle: number;
-  slipAngle: number;
-}
+// ============================================================================
+// INITIAL STATE CONSTANTS
+// ============================================================================
 
-/** Player position in world space */
-interface PlayerPosition {
-  x: number;
-  y: number;
-  z: number;
-}
+const INITIAL_POSITION: IVec3 = { x: 0, y: 0.5, z: 0 };
 
-/** Input controls state */
-interface ControlsState {
-  throttle: boolean;
-  brake: boolean;
-  steerLeft: boolean;
-  steerRight: boolean;
-  boost: boolean;
-}
+const INITIAL_PROFILE: IPlayerProfile = {
+  id: 'player_01',
+  name: 'Racer',
+  level: 1,
+  xp: 0,
+  coins: 2000,
+  inventory: [],
+  equippedVehicle: 'sedan_basic',
+  unlockedVehicles: ['sedan_basic', 'sports_red'],
+  totalDistanceTraveled: 0,
+  totalCoinsCollected: 0,
+  totalQuestsCompleted: 0,
+  xpToNext: xpForLevel(2),
+  rank: 0,
+  reputation: 0,
+};
 
-/** Notification shape */
-interface Notification {
-  id: string;
-  message: string;
-  type: 'success' | 'error' | 'info' | 'warning';
-  timestamp: number;
-}
+const INITIAL_VEHICLE: IVehicleState = {
+  id: 'sedan_basic',
+  position: { ...INITIAL_POSITION },
+  rotation: { x: 0, y: 0, z: 0 },
+  velocity: { x: 0, y: 0, z: 0 },
+  speed: 0,
+  maxSpeed: 200,
+  rpm: 800,
+  gear: 1,
+  health: 100,
+  maxHealth: 100,
+  fuel: 100,
+  isDrifting: false,
+  isBoosting: false,
+  boostTimer: 0,
+  steerAngle: 0,
+  slipAngle: 0,
+  paintColor: '#e63946',
+  accelMult: 1,
+  handlingMult: 1,
+};
 
-/** Shape of the game store state */
-interface GameStoreState {
-  profile: PlayerProfile;
-  vehicle: VehicleState;
-  controls: ControlsState;
+const INITIAL_CONTROLS: Controls = {
+  throttle: false,
+  brake: false,
+  steerLeft: false,
+  steerRight: false,
+  boost: false,
+};
+
+const INITIAL_INPUT_STATE: InputState = {
+  forward: false,
+  backward: false,
+  left: false,
+  right: false,
+  handbrake: false,
+  boost: false,
+  interact: false,
+  quest: false,
+  pause: false,
+};
+
+// Fix INITIAL_QUEST_STATS to include ALL categories:
+const INITIAL_QUEST_STATS: QuestStats = {
+  totalCompleted: 0,
+  totalFailed: 0,
+  totalDriftDistance: 0,
+  totalTopSpeedReached: 0,
+  totalPickupsCollected: 0,
+  // ✅ Initialize ALL category keys to satisfy Record<QuestCategory, number>
+  categoryCompleted: {
+    main: 0,
+    side: 0,
+    daily: 0,
+    exploration: 0,
+    delivery: 0,
+    challenge: 0,
+    tour: 0
+  },
+};
+
+const INITIAL_PERFORMANCE: IPerformanceMetrics = {
+  fps: 60,
+  frameTime: 16.6,
+  memoryUsed: 0,
+  drawCalls: 0,
+  triangles: 0,
+  qualityTier: 'high',
+};
+
+// ============================================================================
+// STORE INTERFACES
+// ============================================================================
+
+export interface GameStoreState {
+  // Core state
+  profile: IPlayerProfile;
+  vehicle: IVehicleState;
   gameMode: GameMode;
+  
+  // Quest system
   activeQuestId: string | null;
-  activeQuest: ActiveQuest | null;
-  availableQuests: Quest[];
+  activeQuest: IQuest | null;
+  availableQuests: IQuest[];
   completedQuests: number;
+  questStats: QuestStats;
+  
+  // Player tracking
+  playerPosition: IVec3;
+  lastCheckpoint: IVec3;
   maxSpeedEver: number;
   totalDriftDistance: number;
   totalCoinsCollected: number;
   longestSurvivalDistance: number;
   totalPurchases: number;
-  playerPosition: PlayerPosition;
-  lastCheckpoint: PlayerPosition;
-  notifications: Notification[];
-  sceneRef: { current: THREE.Scene | null } | null;
-  cameraRef: { current: THREE.Camera | null } | null;
+  
+  // Input & interaction
+  inputState: InputState;
+  /** Driving controls consumed by VehiclePhysics each frame. */
+  controls: Controls;
+  interactionTarget: InteractionTarget | null;
+
+  // Collision feedback (i-frames + near-miss combo)
+  /** ms timestamp until which the player ignores collisions (post-hit/respawn). */
+  invulnerableUntil: number;
+  /** Current near-miss combo count (0 when broken). */
+  combo: number;
+  /** ms timestamp when the current combo expires if no new near-miss. */
+  comboExpiresAt: number;
+  /** Police heat 0..5 — rises from crashes/speeding, spawns pursuit. */
+  wantedLevel: number;
+  
+  // UI/Notifications
+  notifications: Array<{ id: string; message: string; type: string; timestamp: number }>;
+  
+  // Performance
+  performance: IPerformanceMetrics;
+  
+  // R3F refs (set via RuntimeManagers)
+  sceneRef: React.MutableRefObject<THREE.Scene | null>;
+  cameraRef: React.MutableRefObject<THREE.Camera | null>;
 }
 
-/** Shape of the game store actions */
-interface GameStoreActions {
-  /* ── Profile ── */
+export interface GameStoreActions {
+  // Profile actions
   setProfileName: (name: string) => void;
   addCoins: (amount: number) => void;
   spendCoins: (amount: number) => boolean;
@@ -112,129 +171,120 @@ interface GameStoreActions {
   addItemToInventory: (itemId: string, count?: number) => void;
   removeItemFromInventory: (itemId: string, count?: number) => void;
   hasItem: (itemId: string) => boolean;
-
-  /* ── Vehicle ── */
+  
+  // Vehicle actions
   equipVehicle: (vehicleId: string) => boolean;
   unlockVehicle: (vehicleId: string) => boolean;
+  purchaseVehicle: (vehicleId: string) => boolean;
+  setPaint: (color: string) => void;
+  updateVehicleState: (partial: Partial<IVehicleState>) => void;
+  repairVehicle: (amount?: number) => void;
+  resetVehicle: () => void;
 
-  /* ── Quest ── */
-  setActiveQuest: (quest: ActiveQuest | null) => void;
+  // Progression
+  addReputation: (amount: number) => void;
+
+  // Police heat
+  addWanted: (amount: number) => void;
+  clearWanted: () => void;
+  
+  // Quest actions
+  setActiveQuest: (quest: IQuest | null) => void;
   setActiveQuestId: (questId: string | null) => void;
   updateQuestObjectiveProgress: (objectiveId: string, amount: number) => void;
   completeActiveQuest: () => void;
   completeQuest: (questId?: string) => void;
   failActiveQuest: () => void;
-
-  /* ── Mode ── */
+  updateQuestStats: (partial: Partial<QuestStats>) => void;
+  
+  // Mode actions
   setGameMode: (mode: GameMode) => void;
-
-  /* ── Vehicle ── */
-  updateVehicleState: (partialState: Partial<VehicleState>) => void;
-  repairVehicle: (amount?: number) => void;
-  setControls: (partialControls: Partial<ControlsState>) => void;
-
-  /* ── Notifications ── */
-  addNotification: (message: string, type?: Notification['type']) => void;
+  
+  // Input actions
+  updateInputState: (partial: Partial<InputState>) => void;
+  
+  // Interaction actions
+  setInteractionTarget: (target: InteractionTarget | null) => void;
+  
+  // Notification actions
+  addNotification: (message: string, type?: string) => void;
   dismissNotification: (id: string) => void;
   clearNotifications: () => void;
-  updatePerformanceMetrics: (metrics: Record<string, unknown>) => void;
-
-  /* ── Position ── */
-  setPlayerPosition: (pos: PlayerPosition) => void;
-
-  /* ── Persistence helpers ── */
-  exportSave: () => Record<string, unknown>;
-  importSave: (data: Record<string, unknown>) => void;
+  
+  // Position actions
+  setPlayerPosition: (pos: IVec3) => void;
+  
+  // Performance actions
+  updatePerformanceMetrics: (metrics: Partial<IPerformanceMetrics>) => void;
+  
+  // Persistence
+  exportSave: () => any;
+  importSave: (data: any) => void;
   resetProfile: () => void;
-  resetVehicle: () => void;
+
+  setControls: (partial: { throttle?: boolean; brake?: boolean; steerLeft?: boolean; steerRight?: boolean; boost?: boolean }) => void;
 }
 
-/* ─────────────────────────────────────────────
- * Initial State
- * ───────────────────────────────────────────── */
-
-const INITIAL_PROFILE: PlayerProfile = {
-  id: 'player_01',
-  name: 'Racer',
-  level: 1,
-  xp: 0,
-  coins: 2000,
-  inventory: ['item_repair_kit', 'item_boost_fuel'],
-  equippedVehicle: 'sedan_basic',
-  unlockedVehicles: ['sedan_basic', 'sports_red'],
-  totalDistanceTraveled: 0,
-  totalCoinsCollected: 0,
-  totalQuestsCompleted: 0,
-  xpToNext: xpForLevel(2),
-};
-
-const INITIAL_POSITION: PlayerPosition = { x: 4.35, y: 0.5, z: 0 };
-
-const INITIAL_VEHICLE: VehicleState = {
-  position: INITIAL_POSITION,
-  rotation: { x: 0, y: 0, z: 0 },
-  velocity: { x: 0, y: 0, z: 0 },
-  speed: 0,
-  maxSpeed: 200,
-  rpm: 800,
-  gear: 1,
-  fuel: 100,
-  health: 100,
-  maxHealth: 100,
-  isDrifting: false,
-  isBoosting: false,
-  boostTimer: 0,
-  steerAngle: 0,
-  headingAngle: 0,
-  slipAngle: 0,
-};
-
-/* ─────────────────────────────────────────────
- * Store
- * ───────────────────────────────────────────── */
+// ============================================================================
+// ZUSTAND STORE CREATION
+// ============================================================================
 
 export const useGameStore = create<GameStoreState & GameStoreActions>()((set, get) => ({
-  /* ── State ── */
+  /* ── Initial State ── */
   profile: INITIAL_PROFILE,
   vehicle: INITIAL_VEHICLE,
-  controls: {
-    throttle: false,
-    brake: false,
-    steerLeft: false,
-    steerRight: false,
-    boost: false,
-  },
-  gameMode: 'playing' as GameMode,
+  gameMode: 'playing',
+  
+  // Quest system
   activeQuestId: null,
   activeQuest: null,
   availableQuests: [],
   completedQuests: 0,
+  questStats: INITIAL_QUEST_STATS,
+  
+  // Player tracking
+  playerPosition: INITIAL_POSITION,
+  lastCheckpoint: INITIAL_POSITION,
   maxSpeedEver: 0,
   totalDriftDistance: 0,
   totalCoinsCollected: 0,
   longestSurvivalDistance: 0,
   totalPurchases: 0,
-  playerPosition: INITIAL_POSITION,
-  lastCheckpoint: INITIAL_POSITION,
+  
+  // Input & interaction
+  inputState: INITIAL_INPUT_STATE,
+  controls: { ...INITIAL_CONTROLS },
+  interactionTarget: null,
+
+  // Collision feedback
+  invulnerableUntil: 0,
+  combo: 0,
+  comboExpiresAt: 0,
+  wantedLevel: 0,
+  
+  // UI/Notifications
   notifications: [],
-  sceneRef: null,
-  cameraRef: null,
+  
+  // Performance
+  performance: INITIAL_PERFORMANCE,
+  
+  // R3F refs
+  sceneRef: { current: null },
+  cameraRef: { current: null },
 
   /* ── Profile Actions ── */
+  setProfileName: (name) => set((state) => ({
+    profile: { ...state.profile, name }
+  })),
 
-  setProfileName: (name) =>
-    set((state) => ({
-      profile: { ...state.profile, name },
-    })),
-
-  addCoins: (amount) =>
-    set((state) => {
-      const newCoins = state.profile.coins + amount;
-      const newTotalCoins = state.profile.totalCoinsCollected + amount;
-      return {
-        profile: { ...state.profile, coins: newCoins, totalCoinsCollected: newTotalCoins },
-      };
-    }),
+  addCoins: (amount) => set((state) => {
+    const newCoins = state.profile.coins + amount;
+    const newTotal = state.totalCoinsCollected + amount;
+    return {
+      profile: { ...state.profile, coins: newCoins },
+      totalCoinsCollected: newTotal
+    };
+  }),
 
   spendCoins: (amount) => {
     const { profile } = get();
@@ -243,227 +293,275 @@ export const useGameStore = create<GameStoreState & GameStoreActions>()((set, ge
     return true;
   },
 
-  addXp: (amount) =>
-    set((state) => {
-      let newXp = state.profile.xp + amount;
-      let newLevel = state.profile.level;
-
-      // Level up loop — XP required grows per level
-      while (newLevel < 50) {
-        const xpNeeded = xpForLevel(newLevel + 1);
-        if (newXp >= xpNeeded) {
-          newXp -= xpNeeded;
-          newLevel += 1;
-        } else {
-          break;
-        }
+  addXp: (amount) => set((state) => {
+    let newXp = state.profile.xp + amount;
+    let newLevel = state.profile.level;
+    
+    while (newLevel < 50) {
+      const xpNeeded = xpForLevel(newLevel + 1);
+      if (newXp >= xpNeeded) {
+        newXp -= xpNeeded;
+        newLevel += 1;
+      } else break;
+    }
+    
+    return {
+      profile: { 
+        ...state.profile, 
+        xp: newXp, 
+        level: newLevel, 
+        xpToNext: xpForLevel(newLevel + 1) 
       }
+    };
+  }),
 
-      return {
-        profile: { ...state.profile, xp: newXp, level: newLevel, xpToNext: xpForLevel(newLevel + 1) },
-      };
-    }),
+  addItemToInventory: (itemId, count = 1) => set((state) => {
+    const newItems = [...state.profile.inventory];
+    for (let i = 0; i < count; i++) newItems.push(itemId);
+    return { profile: { ...state.profile, inventory: newItems } };
+  }),
 
-  addItemToInventory: (itemId, count = 1) =>
-    set((state) => {
-      if (state.profile.inventory.includes(itemId)) {
-        return {}; // Already owned, no-op
-      }
-      return {
-        profile: { ...state.profile, inventory: [...state.profile.inventory, ...Array(count).fill(itemId)] },
-      };
-    }),
-
-  removeItemFromInventory: (itemId, count = 1) =>
-    set((state) => {
-      const items = state.profile.inventory.filter((id) => id !== itemId);
-      return { profile: { ...state.profile, inventory: items } };
-    }),
+  removeItemFromInventory: (itemId, count = 1) => set((state) => {
+    const items = [...state.profile.inventory];
+    for (let i = 0; i < count && items.includes(itemId); i++) {
+      const idx = items.indexOf(itemId);
+      if (idx > -1) items.splice(idx, 1);
+    }
+    return { profile: { ...state.profile, inventory: items } };
+  }),
 
   hasItem: (itemId) => get().profile.inventory.includes(itemId),
 
   /* ── Vehicle Actions ── */
-
   equipVehicle: (vehicleId) => {
     const { profile } = get();
     if (!profile.unlockedVehicles.includes(vehicleId)) return false;
-    set({ profile: { ...profile, equippedVehicle: vehicleId } });
+    // Apply the equipped vehicle's config + owned upgrades to the live vehicle so
+    // the car actually drives differently (top speed, acceleration, handling).
+    const stats = effectiveVehicleStats(vehicleId, profile.inventory);
+    set((s) => ({
+      profile: { ...s.profile, equippedVehicle: vehicleId },
+      vehicle: {
+        ...s.vehicle,
+        id: vehicleId,
+        maxSpeed: stats.maxSpeed,
+        accelMult: stats.accelMult,
+        handlingMult: stats.handlingMult,
+      },
+    }));
     return true;
   },
 
   unlockVehicle: (vehicleId) => {
     const { profile } = get();
     if (profile.unlockedVehicles.includes(vehicleId)) return true;
-    set({
-      profile: { ...profile, unlockedVehicles: [...profile.unlockedVehicles, vehicleId] },
-    });
+    set({ profile: { ...profile, unlockedVehicles: [...profile.unlockedVehicles, vehicleId] } });
     return true;
   },
 
+  purchaseVehicle: (vehicleId) => {
+    const cfg = VEHICLE_CONFIG_MAP[vehicleId];
+    if (!cfg) return false;
+    const { profile } = get();
+    if (profile.unlockedVehicles.includes(vehicleId)) return true;
+    if (!get().spendCoins(cfg.price)) return false;
+    get().unlockVehicle(vehicleId);
+    return true;
+  },
+
+  setPaint: (color) => set((s) => ({ vehicle: { ...s.vehicle, paintColor: color } })),
+
+  addReputation: (amount) => set((s) => {
+    const reputation = Math.max(0, s.profile.reputation + amount);
+    const rank = Math.floor(reputation / REP_PER_RANK);
+    return { profile: { ...s.profile, reputation, rank } };
+  }),
+
+  addWanted: (amount) => set((s) => ({ wantedLevel: Math.max(0, Math.min(5, s.wantedLevel + amount)) })),
+  clearWanted: () => set({ wantedLevel: 0 }),
+
+  updateVehicleState: (partial) => set((state) => ({
+    vehicle: { ...state.vehicle, ...partial },
+    maxSpeedEver: Math.max(state.maxSpeedEver, partial.speed ?? state.vehicle.speed)
+  })),
+
+  repairVehicle: (amount = 100) => set((state) => ({
+    vehicle: {
+      ...state.vehicle,
+      health: Math.min(state.vehicle.maxHealth, state.vehicle.health + amount)
+    }
+  })),
+
+  resetVehicle: () => set({ vehicle: INITIAL_VEHICLE, playerPosition: INITIAL_POSITION }),
+
   /* ── Quest Actions ── */
-
-  setActiveQuest: (quest) =>
-    set(() => ({
-      activeQuestId: quest ? quest.questId : null,
-      activeQuest: quest,
-    })),
-
+  setActiveQuest: (quest) => set({ activeQuestId: quest?.id ?? null, activeQuest: quest }),
   setActiveQuestId: (questId) => set({ activeQuestId: questId }),
 
   updateQuestObjectiveProgress: (objectiveId, amount) => {
-    // This action is intentionally minimal — actual quest state lives in questStore.
-    // Kept here for backward compatibility with existing code that references gameStore.
-    set(() => ({}));
+    const { activeQuest } = get();
+    if (!activeQuest) return;
+    
+    const updated = activeQuest.objectives.map(obj => {
+      if (obj.id !== objectiveId) return obj;
+      const newCurrent = Math.min(obj.target, obj.current + amount);
+      return { ...obj, current: newCurrent, isCompleted: newCurrent >= obj.target };
+    });
+    
+    const allDone = updated.every(o => o.isCompleted);
+    set({
+      activeQuest: { ...activeQuest, objectives: updated },
+      questStats: {
+        ...get().questStats,
+        totalCompleted: allDone ? get().questStats.totalCompleted + 1 : get().questStats.totalCompleted
+      }
+    });
+    
+    if (allDone) get().completeQuest();
   },
 
-  completeActiveQuest: () =>
-    set((state) => {
-      const { profile } = state;
-      return {
-        activeQuestId: null,
-        activeQuest: null,
-        completedQuests: state.completedQuests + 1,
-        profile: {
-          ...profile,
-          totalQuestsCompleted: profile.totalQuestsCompleted + 1,
-        },
-      };
-    }),
+  completeActiveQuest: () => set((state) => ({
+    activeQuestId: null,
+    activeQuest: null,
+    completedQuests: state.completedQuests + 1,
+    profile: { ...state.profile, totalQuestsCompleted: state.profile.totalQuestsCompleted + 1 }
+  })),
 
-  completeQuest: () => get().completeActiveQuest(),
+  completeQuest: (questId?: string) => {
+    const state = get();
+    const targetQuestId = questId || state.activeQuest?.id;
+    
+    if (!targetQuestId) return;
+    
+    // Find and award rewards
+    const quest = state.availableQuests.find(q => q.id === targetQuestId) || state.activeQuest;
+    if (quest?.rewards) {
+      if (quest.rewards.coins) get().addCoins(quest.rewards.coins);
+      if (quest.rewards.xp) get().addXp(quest.rewards.xp);
+      quest.rewards.items?.forEach(item => get().addItemToInventory(item));
+    }
+    
+    // Update stats and clear
+    set({
+      completedQuests: state.completedQuests + 1,
+      activeQuest: null,
+      activeQuestId: null,
+      availableQuests: state.availableQuests.filter(q => q.id !== targetQuestId)
+    });
+  },
 
   failActiveQuest: () => set({ activeQuestId: null, activeQuest: null }),
 
-  /* ── Mode Actions ── */
+  updateQuestStats: (partial) =>
+    set((state) => {
+      const mergedCategories = { ...state.questStats.categoryCompleted };
+      if (partial.categoryCompleted) {
+        Object.entries(partial.categoryCompleted).forEach(([key, value]) => {
+          if (key in mergedCategories) {
+            mergedCategories[key as QuestCategory] = value;
+          }
+        });
+      }
+      return {
+        questStats: {
+          ...state.questStats,
+          ...partial,
+          categoryCompleted: mergedCategories
+        }
+      };
+    }),
 
+  /* ── Mode Actions ── */
   setGameMode: (mode) => set({ gameMode: mode }),
 
-  /* ── Vehicle Actions ── */
+  /* ── Input Actions ── */
+  updateInputState: (partial) => set((state) => ({
+    inputState: { ...state.inputState, ...partial }
+  })),
 
-  updateVehicleState: (partialState) =>
-    set((state) => ({
-      vehicle: { ...state.vehicle, ...partialState },
-      maxSpeedEver: Math.max(state.maxSpeedEver, partialState.speed ?? state.vehicle.speed),
-    })),
-
-  repairVehicle: (amount = 100) =>
-    set((state) => ({
-      vehicle: {
-        ...state.vehicle,
-        health: Math.min(state.vehicle.maxHealth, state.vehicle.health + amount),
-      },
-    })),
-
-  /* ── Controls Actions ── */
-
-  setControls: (partialControls) =>
-    set((state) => ({
-      controls: { ...state.controls, ...partialControls },
-    })),
+  /* ── Interaction Actions ── */
+  setInteractionTarget: (target) => set({ interactionTarget: target }),
 
   /* ── Notification Actions ── */
+  addNotification: (message, type = 'info') => set((state) => ({
+    notifications: [
+      ...state.notifications,
+      { id: `n_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, message, type, timestamp: Date.now() }
+    ].slice(-10)
+  })),
 
-  addNotification: (message, type = 'info') =>
-    set((state) => ({
-      notifications: [
-        ...state.notifications,
-        {
-          id: `notif_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
-          message,
-          type,
-          timestamp: Date.now(),
-        },
-      ].slice(-10), // Keep last 10 notifications
-    })),
-
-  dismissNotification: (id) =>
-    set((state) => ({
-      notifications: state.notifications.filter((n) => n.id !== id),
-    })),
+  dismissNotification: (id) => set((state) => ({
+    notifications: state.notifications.filter(n => n.id !== id)
+  })),
 
   clearNotifications: () => set({ notifications: [] }),
 
-  updatePerformanceMetrics: () => set(() => ({})),
+  /* ── Position Actions ── */
+  setPlayerPosition: (pos) => set({ playerPosition: pos }),
 
-  /* ── Persistence Helpers ── */
+  /* ── Performance Actions ── */
+  updatePerformanceMetrics: (metrics) => set((state) => ({
+    performance: { ...state.performance, ...metrics }
+  })),
 
+  /* ── Persistence ── */
   exportSave: () => {
-    const state = get();
+    const s = get();
     return {
       profile: {
-        id: state.profile.id,
-        name: state.profile.name,
-        level: state.profile.level,
-        xp: state.profile.xp,
-        coins: state.profile.coins,
-        inventory: state.profile.inventory,
-        equippedVehicle: state.profile.equippedVehicle,
-        unlockedVehicles: state.profile.unlockedVehicles,
-        totalDistanceTraveled: state.profile.totalDistanceTraveled,
-        totalCoinsCollected: state.profile.totalCoinsCollected,
-        totalQuestsCompleted: state.profile.totalQuestsCompleted,
+        id: s.profile.id, name: s.profile.name, level: s.profile.level,
+        xp: s.profile.xp, coins: s.profile.coins, inventory: s.profile.inventory,
+        equippedVehicle: s.profile.equippedVehicle, unlockedVehicles: s.profile.unlockedVehicles,
+        totalDistanceTraveled: s.profile.totalDistanceTraveled,
+        totalCoinsCollected: s.totalCoinsCollected,
+        totalQuestsCompleted: s.profile.totalQuestsCompleted
       },
-      vehicle: {
-        speed: state.vehicle.speed,
-        maxSpeed: state.vehicle.maxSpeed,
-        fuel: state.vehicle.fuel,
-        health: state.vehicle.health,
-      },
-      timestamp: Date.now(),
+      vehicle: { speed: s.vehicle.speed, fuel: s.vehicle.fuel, health: s.vehicle.health },
+      questStats: s.questStats,
+      timestamp: Date.now()
     };
   },
 
   importSave: (data) => {
-    if (!data || typeof data !== 'object') return;
-    const profileData = (data as any).profile;
-    if (!profileData || typeof profileData !== 'object') return;
-
-    const safeProfile: PlayerProfile = {
-      id: String(profileData.id ?? 'player_01'),
-      name: String(profileData.name ?? 'Racer'),
-      level: Math.max(1, Math.min(50, Number(profileData.level) || 1)),
-      xp: Math.max(0, Number(profileData.xp) || 0),
-      coins: Math.max(0, Number(profileData.coins) || 2000),
-      inventory: Array.isArray(profileData.inventory) ? profileData.inventory : [],
-      equippedVehicle: String(profileData.equippedVehicle ?? 'sedan_basic'),
-      unlockedVehicles: Array.isArray(profileData.unlockedVehicles)
-        ? profileData.unlockedVehicles
-        : ['sedan_basic', 'sports_red'],
-      totalDistanceTraveled: Number(profileData.totalDistanceTraveled) || 0,
-      totalCoinsCollected: Number(profileData.totalCoinsCollected) || 0,
-      totalQuestsCompleted: Number(profileData.totalQuestsCompleted) || 0,
-      xpToNext: xpForLevel((Number(profileData.level) || 1) + 1),
+    if (!data?.profile) return;
+    const p = data.profile;
+    const safeProfile: IPlayerProfile = {
+      id: String(p.id ?? 'player_01'),
+      name: String(p.name ?? 'Racer'),
+      level: Math.max(1, Math.min(50, Number(p.level) || 1)),
+      xp: Math.max(0, Number(p.xp) || 0),
+      coins: Math.max(0, Number(p.coins) || 2000),
+      inventory: Array.isArray(p.inventory) ? p.inventory : [],
+      equippedVehicle: String(p.equippedVehicle ?? 'sedan_basic'),
+      unlockedVehicles: Array.isArray(p.unlockedVehicles) ? p.unlockedVehicles : ['sedan_basic'],
+      totalDistanceTraveled: Number(p.totalDistanceTraveled) || 0,
+      totalCoinsCollected: Number(p.totalCoinsCollected) || 0,
+      totalQuestsCompleted: Number(p.totalQuestsCompleted) || 0,
+      xpToNext: xpForLevel((Number(p.level) || 1) + 1),
+      rank: Math.max(0, Number(p.rank) || 0),
+      reputation: Math.max(0, Number(p.reputation) || 0)
     };
-
     set({ profile: safeProfile });
+    if (data.questStats) set({ questStats: { ...INITIAL_QUEST_STATS, ...data.questStats } });
   },
 
-  resetProfile: () =>
-    set({
-      profile: INITIAL_PROFILE,
-      vehicle: INITIAL_VEHICLE,
-      controls: {
-        throttle: false,
-        brake: false,
-        steerLeft: false,
-        steerRight: false,
-        boost: false,
-      },
-      activeQuestId: null,
-      playerPosition: INITIAL_POSITION,
-      notifications: [],
-    }),
+  resetProfile: () => set({
+    profile: INITIAL_PROFILE,
+    vehicle: INITIAL_VEHICLE,
+    inputState: INITIAL_INPUT_STATE,
+    interactionTarget: null,
+    activeQuestId: null,
+    activeQuest: null,
+    availableQuests: [],
+    completedQuests: 0,
+    questStats: INITIAL_QUEST_STATS,
+    playerPosition: INITIAL_POSITION,
+    notifications: []
+  }),
 
-  /* ── Position Actions ── */
+setControls: (partial) =>
+  set((state) => ({
+    controls: { ...state.controls, ...partial },
+  })),
 
-  setPlayerPosition: (pos) =>
-    set({ playerPosition: pos }),
-
-  /* ── Vehicle Actions ── */
-
-  resetVehicle: () =>
-    set({
-      vehicle: INITIAL_VEHICLE,
-      playerPosition: INITIAL_POSITION,
-    }),
 }));

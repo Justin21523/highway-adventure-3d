@@ -10,7 +10,7 @@
 
 import * as THREE from 'three';
 import { useGameStore } from '@/stores/gameStore';
-import type { VehicleState } from '@/stores/gameStore';
+import type { VehicleState } from '@/types/core';
 import { useWorldStore } from '@/stores/worldStore';
 import { useQuestStore } from '@/stores/questStore';
 import { GameRuntime } from './GameRuntime';
@@ -114,9 +114,9 @@ export class VehiclePhysics {
     const gameStore = useGameStore.getState();
     const controls = gameStore.controls;
 
-    // Acceleration
+    // Acceleration (scaled by the equipped vehicle's acceleration multiplier)
     if (controls.throttle) {
-      const accelRate = PHYSICS.ACCELERATION * (vehicle.isBoosting ? 1.5 : 1);
+      const accelRate = PHYSICS.ACCELERATION * (vehicle.accelMult ?? 1) * (vehicle.isBoosting ? 1.5 : 1);
       vehicle.speed = Math.min(vehicle.speed + accelRate * delta, vehicle.maxSpeed);
     }
 
@@ -157,7 +157,7 @@ export class VehiclePhysics {
     // Steering grows with speed but is dampened at high speeds to prevent oversteer.
     const speedFactor = Math.min(vehicle.speed / 30, 1);
     const highSpeedDamp = vehicle.speed > 90 ? 0.55 : 1.0;
-    const steerSpeed = PHYSICS.STEER_SPEED * speedFactor * highSpeedDamp;
+    const steerSpeed = PHYSICS.STEER_SPEED * (vehicle.handlingMult ?? 1) * speedFactor * highSpeedDamp;
     const steerAmount = steerSpeed * delta;
     const returnAmount = steerAmount * PHYSICS.STEER_RETURN_MULTIPLIER;
 
@@ -319,19 +319,23 @@ export class VehiclePhysics {
       gameStore.updateVehicleState({ speed: 0, steerAngle: 0, headingAngle: 0 });
     }
 
-    // Keep the arcade vehicle inside the currently rendered drivable corridor.
-    // The full road network has elevated decks and ramps around x ~= 20, so the
-    // bound is intentionally wide. This prevents a hard steer from sending the
-    // camera into unrendered space and looking like a black-screen freeze.
-    const maxDriveX = 42;
-    if (newX > maxDriveX || newX < -maxDriveX) {
-      newX = THREE.MathUtils.clamp(newX, -maxDriveX, maxDriveX);
-      vehicle.speed *= 0.92;
-      this.headingAngle = THREE.MathUtils.lerp(this.headingAngle, 0, Math.min(1, delta * 1.8));
-      gameStore.updateVehicleState({ speed: vehicle.speed, headingAngle: this.headingAngle });
-    }
+    // Lateral world bounds — generous so the player can freely roam across every
+    // district (central highway corridor → commercial / residential bands →
+    // countryside). The world is streamed in 2D (HighwayNetworkSystem / ChunkStreamer
+    // load a square area around the player), so there is no unrendered space to fall
+    // into. We only clamp position at the far edge; we never kill momentum or force a
+    // heading change — that previously made the car feel like it hit an invisible wall
+    // and got stuck.
+    const MAX_DRIVE_X = 700; // ≈ chunk cx ±7: covers highway, city, suburb, countryside
+    newX = THREE.MathUtils.clamp(newX, -MAX_DRIVE_X, MAX_DRIVE_X);
 
-    const surface = sampleDriveSurface(newX, newZ, worldStore.isElevated);
+    // Only the central highway corridor has elevated decks / ramps. Every other
+    // district is flat, drivable ground, so the car can never snag on phantom
+    // elevated geometry once it leaves the highway.
+    const HIGHWAY_CORRIDOR_HALF = 60; // meters — captures the deck + on/off ramps
+    const surface = Math.abs(newX) <= HIGHWAY_CORRIDOR_HALF
+      ? sampleDriveSurface(newX, newZ, worldStore.isElevated)
+      : { playerY: 0.5, elevation: 0, isElevated: false };
 
     // Smooth Y transitions so ramps and surface changes don't snap the camera/vehicle.
     // - Small differences (< 0.1m): snap immediately. Prevents tiny floating-point

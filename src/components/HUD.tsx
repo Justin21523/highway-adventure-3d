@@ -17,6 +17,7 @@ import { formatSpeed, formatDistance, formatCoins, formatXP, formatLevel } from 
 export function HUD() {
   const vehicle = useGameStore((state) => state.vehicle);
   const profile = useGameStore((state) => state.profile);
+  const wantedLevel = useGameStore((state) => state.wantedLevel);
   const currentChunkId = useWorldStore((state) => state.currentChunkId);
   const activeQuests = useQuestStore((state) => state.activeQuests);
 
@@ -43,7 +44,28 @@ export function HUD() {
           <div className="rounded-lg bg-black/60 px-4 py-2 text-white backdrop-blur-sm">
             <div className="text-lg font-bold">{formatCoins(profile.coins)}</div>
           </div>
+
+          {/* Driver rank + progress to next rank */}
+          <div className="rounded-lg bg-black/60 px-4 py-2 text-white backdrop-blur-sm">
+            <div className="text-sm font-bold text-cyan-300">Rank {profile.rank}</div>
+            <div className="mt-1 h-2 w-24 overflow-hidden rounded-full bg-gray-700">
+              <div
+                className="h-full rounded-full bg-cyan-400 transition-all"
+                style={{ width: `${((profile.reputation % 500) / 500) * 100}%` }}
+              />
+            </div>
+          </div>
         </div>
+
+        {/* Wanted level (police heat) */}
+        {wantedLevel > 0 && (
+          <div className="rounded-lg bg-red-950/70 px-3 py-2 text-white backdrop-blur-sm">
+            <div className="text-sm font-bold tracking-widest text-red-300">
+              {'★'.repeat(wantedLevel)}<span className="text-red-900/70">{'★'.repeat(Math.max(0, 5 - wantedLevel))}</span>
+            </div>
+            <div className="text-[10px] text-red-300/80">WANTED</div>
+          </div>
+        )}
 
         {/* Active quest indicator */}
         {activeQuests.length > 0 && (

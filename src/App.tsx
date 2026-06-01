@@ -5,8 +5,9 @@
  * Scene systems are mounted through GameScene so the player vehicle, camera,
  * world, traffic, shops, pickups, and collision systems share one scene graph.
  */
-import React, { Suspense, useCallback, useEffect, useState } from 'react';
-import { Canvas, useThree } from '@react-three/fiber';
+import React, { RefObject, Suspense, useCallback, useEffect, useState, useRef } from 'react';
+import * as THREE from 'three';
+import { Canvas, useThree, Object3DNode } from '@react-three/fiber';
 import { Stars } from '@react-three/drei';
 
 import { GameScene } from './components/GameScene';
@@ -25,6 +26,9 @@ import { TutorialOverlay } from './ui/TutorialOverlay';
 import { AchievementPanel } from './components/ui/AchievementPanel';
 import { CrashOverlay } from './components/ui/CrashOverlay';
 import { MinimapRenderer } from './components/ui/MinimapRenderer';
+import { ActivityHUD } from './components/ui/ActivityHUD';
+import { ComboIndicator } from './components/ui/ComboIndicator';
+import { DailyChallenges } from './components/ui/DailyChallenges';
 
 import { AudioManager } from './managers/AudioManager';
 import { InputManager } from './managers/InputManager';
@@ -38,6 +42,18 @@ import { useGameOrchestrator } from './hooks/useGameOrchestrator';
 import { useGameStore } from './stores/gameStore';
 import { useShopStore } from './stores/shopStore';
 import { detectWebGL, type WebGLStatus } from './utils/webglDetect';
+
+// 新增 Quest 系統相關元件
+import { QuestDialog } from './components/ui/QuestDialog';
+import { QuestZoneIndicator } from './components/world/QuestZoneIndicator';
+import { QuestProgressTracker } from './components/world/QuestProgressTracker';
+import { NPCSpawner } from './components/world/NPCSpawner';
+
+import { PlayerVehicle } from './components/PlayerVehicle';
+import { CameraRig } from './components/CameraRig';
+import { WorldSyncManager } from './components/world/WorldSyncManager';
+
+import type { InputState, InteractionTarget, QuestStats } from './types/core';
 
 const FIX_INSTRUCTIONS: Record<string, string[]> = {
   chrome: [
@@ -133,6 +149,11 @@ export default function App() {
   const [isShopOpen, setIsShopOpen] = useState(false);
   const [isGarageOpen, setIsGarageOpen] = useState(false);
   const interiorShopId = useShopStore((state) => state.interiorShopId);
+  const gameMode = useGameStore((state) => state.gameMode);
+
+  const vRef = useRef<THREE.Group>(null);   // 共有車両 ref（PlayerVehicle / CameraRig / NPCSpawner で共有）
+  const worldRef = useRef<THREE.Group>(null);
+  const musicRef = useRef(MusicManager.getInstance()); // 程序化音樂引擎（WorldSyncManager が速度に応じて駆動）
 
   useEffect(() => {
     setWebglStatus(detectWebGL());
@@ -232,7 +253,15 @@ export default function App() {
           {!interiorShopId && <Stars radius={200} depth={80} count={3000} factor={4} saturation={0} />}
           <RuntimeManagers />
           <Suspense fallback={null}>
-            {interiorShopId ? <ShopInteriorScene /> : <GameScene />}
+            {interiorShopId ? <ShopInteriorScene /> : <GameScene vehicleRef={vRef} />}
+            <QuestProgressTracker />
+            <PlayerVehicle vehicleRef={vRef} />
+            <CameraRig vehicleRef={vRef} />
+            <WorldSyncManager vRef={vRef} musicRef={musicRef} />
+            {/* NPC 生成器 - 動態任務發放 */}
+            {gameState === 'playing' && <NPCSpawner vehicleRef={vRef} />}
+            {/* 任務視覺指示器 - 顯示目標位置 */}
+            <QuestZoneIndicator />
           </Suspense>
         </Canvas>
       </WebGLErrorBoundary>
@@ -241,13 +270,25 @@ export default function App() {
       <NotificationToast />
       {interiorShopId ? <ShopInteriorOverlay /> : <InteractionOverlay />}
       {!interiorShopId && <MinimapRenderer />}
+      {!interiorShopId && <ActivityHUD />}
+      {!interiorShopId && <ComboIndicator />}
+      {!interiorShopId && <DailyChallenges />}
       <TutorialOverlay />
       <AchievementPanel />
       <CrashOverlay />
+      <QuestDialog />
 
       <QuestLog isOpen={isQuestOpen} onClose={() => setIsQuestOpen(false)} />
       <ShopModal isOpen={isShopOpen} onClose={() => setIsShopOpen(false)} />
-      <GarageModal isOpen={isGarageOpen} onClose={() => setIsGarageOpen(false)} />
+      <GarageModal
+        isOpen={isGarageOpen || gameMode === 'garage'}
+        onClose={() => {
+          setIsGarageOpen(false);
+          if (useGameStore.getState().gameMode === 'garage') {
+            useGameStore.getState().setGameMode('playing');
+          }
+        }}
+      />
       <PauseMenu
         onResume={() => useGameStore.getState().setGameMode('playing')}
         onGarage={() => setIsGarageOpen(true)}

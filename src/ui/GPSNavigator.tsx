@@ -11,7 +11,7 @@ export function GPSNavigator() {
 
   let targetDist: number | null = null;
   if (activeQuest && activeQuest.status === 'active') {
-    const locObj = activeQuest.objectives.find(o => o.type === 'reach_location' && o.location);
+    const locObj = activeQuest.objectives.find(o => o.type === 'reachLocation' && o.location);
     if (locObj && locObj.location) {
       const dx = locObj.location.x - playerPosition.x;
       const dz = locObj.location.z - playerPosition.z;

@@ -38,7 +38,9 @@ interface ToastProps {
   notification: {
     id: string;
     message: string;
-    type: 'success' | 'error' | 'info' | 'warning';
+    // Store types this loosely as string; Toast falls back to the 'info' style
+    // for any unrecognized value (see typeStyles/icons lookups below).
+    type: string;
     timestamp: number;
   };
   onDismiss: () => void;

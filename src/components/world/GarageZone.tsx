@@ -1,6 +1,5 @@
 // src/components/world/GarageZone.tsx
 import { useRef, useEffect } from 'react';
-import { useFrame } from '@react-three/fiber';
 import { Html } from '@react-three/drei';
 import * as THREE from 'three';
 import { useGameStore } from '../../stores/gameStore';
@@ -13,34 +12,34 @@ import { useGameStore } from '../../stores/gameStore';
  */
 export function GarageZone({ vehicleRef }: { vehicleRef: React.RefObject<THREE.Group> }) {
   const zoneRef = useRef<THREE.Mesh>(null);
-  const { gameMode, setGameMode, playerPosition } = useGameStore();
-  const isInsideRef = useRef(false);
-  
-  // Garage spawns at Z = 2000, 4000, 6000... (every 2000m)
+  const { playerPosition } = useGameStore();
+
+  // Garage spawns at Z = 1000, 3000, 5000... (every 2000m), on the highway centerline.
   const garageZ = Math.round(playerPosition.z / 2000) * 2000 + 1000;
   const garagePos = new THREE.Vector3(0, 0, garageZ);
 
-  useFrame(() => {
-    if (!vehicleRef.current) return;
-    
-    const playerPos = new THREE.Vector3(playerPosition.x, playerPosition.y, playerPosition.z);
-    const dist = playerPos.distanceTo(garagePos);
-    
-    // Entry detection
-    if (dist < 12 && !isInsideRef.current && (gameMode === 'playing' || gameMode === 'exploration')) {
-      isInsideRef.current = true;
-      setGameMode('garage');
-      // Snap vehicle to garage bay
-      vehicleRef.current.position.set(0, 0.5, garageZ - 5);
-      vehicleRef.current.rotation.set(0, 0, 0);
-      useGameStore.getState().updateVehicleState({ speed: 0 });
-    }
-    // Exit detection (player moved away or mode changed externally)
-    else if ((dist > 20 || gameMode !== 'garage') && isInsideRef.current) {
-      isInsideRef.current = false;
-      if (gameMode === 'garage') setGameMode('playing');
-    }
-  });
+  // Enter the garage ONLY on an explicit G press while nearby — never automatically
+  // on proximity. (Auto-entry used to snap+freeze the car the moment you drove past,
+  // and because the car was parked inside the trigger radius with physics disabled,
+  // there was no way to drive back out. Closing the GarageModal returns to 'playing'.)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'g' && e.key !== 'G') return;
+      const st = useGameStore.getState();
+      if (st.gameMode !== 'playing' && st.gameMode !== 'exploration') return;
+      const dist = Math.hypot(st.playerPosition.x, st.playerPosition.z - garageZ);
+      if (dist >= 14) return;
+
+      st.setGameMode('garage');
+      if (vehicleRef.current) {
+        vehicleRef.current.position.set(0, 0.5, garageZ - 5);
+        vehicleRef.current.rotation.set(0, 0, 0);
+      }
+      st.updateVehicleState({ speed: 0 });
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [garageZ, vehicleRef]);
 
   // Visual garage structure (procedural fallback)
   return (

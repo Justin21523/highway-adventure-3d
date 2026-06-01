@@ -19,37 +19,13 @@ export function ShopInteraction({ vehicleRef }: { vehicleRef: React.RefObject<TH
   // Shop zone position (spawns at specific Z intervals)
   const shopPosition = new THREE.Vector3(0, 0, 1500); // First shop at Z=1500
 
-  useFrame(() => {
-    if (!vehicleRef.current || !shopZoneRef.current) return;
-    
-    const playerPos = new THREE.Vector3(playerPosition.x, playerPosition.y, playerPosition.z);
-    const distToShop = playerPos.distanceTo(shopPosition);
-    
-    // Detect entry/exit
-    if (distToShop < 15 && !isInsideRef.current && (gameMode === 'playing' || gameMode === 'exploration')) {
-      // Enter shop
-      isInsideRef.current = true;
-      setGameMode('shop');
-      // Store camera state for restoration
-      const cam = useGameStore.getState().cameraRef?.current;
-      if (cam) {
-        originalCameraState.current.position.copy(cam.position);
-        originalCameraState.current.lookAt.copy((cam as any).target || new THREE.Vector3());
-        originalCameraState.current.fov = (cam as THREE.PerspectiveCamera).fov;
-      }
-      // Switch to shop camera: top-down view of shop interior
-      if (vehicleRef.current) {
-        vehicleRef.current.position.set(0, 0.5, shopPosition.z - 8);
-        vehicleRef.current.rotation.set(0, 0, 0);
-        useGameStore.getState().updateVehicleState({ speed: 0 });
-      }
-    } else if (distToShop > 25 && isInsideRef.current && gameMode === 'shop') {
-      // Exit shop
-      isInsideRef.current = false;
-      setGameMode('playing');
-      // Restore original camera (handled by CameraRig re-attaching)
-    }
-  });
+  // NOTE: This legacy hard-coded shop no longer auto-enters on proximity.
+  // Driving within range used to fire setGameMode('shop') + snap the car + speed 0,
+  // which froze the vehicle (physics is disabled in 'shop' mode and the car was
+  // parked inside the trigger radius, so it could never auto-exit). Real shopping is
+  // handled by the world shop system: WorldShopSpawner registers shops, ShopSystem
+  // tracks the nearest one, and pressing E (App keydown) opens the ShopInteriorScene.
+  // This component now only renders the landmark building below.
 
   // Visual shop building (procedural fallback)
   return (

@@ -2,7 +2,7 @@
 import { useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { useGameStore } from '../../stores/gameStore';
-import type { QuestObjective } from '../../types/quest';
+import { QuestObjective, QuestCategory } from '../../types/core';
 
 /**
  * QuestProgressTracker
@@ -37,16 +37,23 @@ export function QuestProgressTracker() {
     if (v.speed > t.lastSpeed) t.lastSpeed = v.speed;
 
     // 4. Update Objectives
+    // ✅ Type-safe objective updates using core.ts QuestObjective
     const updated = state.activeQuest.objectives.map((obj: QuestObjective) => {
       if (obj.isCompleted) return obj;
+      
       let val = obj.current;
-      if (obj.type === 'drift_distance') val = t.driftMeters;
-      else if (obj.type === 'reach_location' && obj.location) {
-        const dist = Math.sqrt((obj.location.x - p.x) ** 2 + (obj.location.z - p.z) ** 2);
+      if (obj.type === 'driftDistance') val = t.driftMeters;
+      else if (obj.type === 'collectCoins') val = obj.current; // Handled externally
+      else if (obj.type === 'reachLocation' && obj.location) {
+        const dist = Math.sqrt(
+          Math.pow(p.x - obj.location.x, 2) + Math.pow(p.z - obj.location.z, 2)
+        );
         val = obj.target - dist;
+      } else if (obj.type === 'top_speed' || obj.type === 'reachSpeed') {
+        val = t.lastSpeed;
+      } else if (obj.type === 'distance_traveled' || obj.type === 'driveDistance') {
+        val = t.distance;
       }
-      else if (obj.type === 'top_speed') val = t.lastSpeed;
-      else if (obj.type === 'distance_traveled') val = t.distance;
 
       const done = val >= obj.target;
       return { ...obj, current: done ? obj.target : val, isCompleted: done };
@@ -54,7 +61,7 @@ export function QuestProgressTracker() {
 
     const allDone = updated.every(o => o.isCompleted);
     if (allDone) {
-      useGameStore.getState().completeQuest(state.activeQuest.id ?? state.activeQuest.questId);
+      useGameStore.getState().completeQuest(state.activeQuest.id ?? state.activeQuest.id);
       // Reset trackers for next quest cycle if needed
       t.driftMeters = 0; t.lastSpeed = 0;
     } else {

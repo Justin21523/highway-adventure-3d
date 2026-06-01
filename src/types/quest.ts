@@ -25,11 +25,19 @@ export type ObjectiveType =
   | 'timeTrial';
 
 /** Quest category for filtering and display */
-export type QuestCategory = 'main' | 'side' | 'daily' | 'exploration' | 'delivery' | 'challenge' | 'tour';
-
+export type QuestCategory = 
+  | 'main' 
+  | 'side' 
+  | 'daily' 
+  | 'exploration' 
+  | 'delivery' 
+  | 'challenge' 
+  | 'tour';
+  
 /** A single objective within a quest */
 export interface QuestObjective {
   id: string;
+  questId?: string;
   type: ObjectiveType;
   description: string;
   target: number;
